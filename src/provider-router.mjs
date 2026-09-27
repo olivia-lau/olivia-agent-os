@@ -47,7 +47,7 @@ export function requiresExecutionApproval(command) {
 export function shouldUseKnowledge(command, mode = 'auto') {
   if (mode === 'on') return true;
   if (mode === 'off') return false;
-  return /\b(my|mine|our|history|past|previous|notes?|obsidian|vault|brain dump|project context|personal|american greetings|easter bunny|selfie bunny)\b/i.test(String(command || '')) || /\bAG\b/.test(String(command || ''));
+  return true;
 }
 
 export function shouldRemember(command, taskType, mode = 'auto') {

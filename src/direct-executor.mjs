@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { AGENT_TIMEOUT_MS, EXECUTION_ROOT, MAX_HANDOFFS, RUN_ARTIFACTS_PATH } from './config.mjs';
+import { AGENT_TIMEOUT_MS, EXECUTION_ROOT, MAX_HANDOFFS, RUN_ARTIFACTS_PATH, VAULT_PATH } from './config.mjs';
 import { buildContextPacket } from './context-broker.mjs';
 import { relevantCorrections } from './corrections.mjs';
 import { writeRunRecord } from './memory-writer.mjs';
@@ -93,6 +93,8 @@ export class DirectExecutor {
     const workspace = path.resolve(bounded(input.workspace, 1000) || EXECUTION_ROOT);
     if (!fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) throw new Error('The selected workspace folder does not exist.');
     const requestedProvider = bounded(input.provider, 30) || 'auto';
+    const codexModel = bounded(input.codexModel, 100);
+    if (codexModel && !/^[a-zA-Z0-9._-]+$/.test(codexModel)) throw new Error('The Codex model name contains unsupported characters.');
     const simulateHandoff = input.simulateHandoff === true;
     if (simulateHandoff && (process.env.OLIVIA_ENABLE_HANDOFF_SIMULATION !== '1' || requestedProvider !== 'codex')) {
       throw new Error('Codex handoff simulation is not enabled.');
@@ -105,7 +107,7 @@ export class DirectExecutor {
     const context = useKnowledge ? buildContextPacket(this.index, { goal: command, categories, includePrivate: input.includePrivate !== false }) : null;
     const approvalRequired = requiresExecutionApproval(command);
     const run = this.runStore.create({
-      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff,
+      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, codexModel,
       provider: route.provider, providerReason: route.reason, taskType: route.taskType, providerHistory: [],
       knowledgeMode, memoryMode, outputCategory: bounded(input.outputCategory, 180) || 'Personal Generic',
       includePrivate: input.includePrivate !== false, context: context ? { query: context.query, policy: context.policy, sources: context.sources, packetHash: context.packetHash, characters: context.characters } : null,
@@ -172,7 +174,9 @@ export class DirectExecutor {
       const simulationInstructions = run.simulateHandoff && provider === 'codex' && run.handoffs.length === 0
         ? `\n\nCONTROLLED HANDOFF TEST: Complete only phase 1 of this task. Research and analyze the options, then write a substantial checkpoint at ${checkpointPath} with findings, source links, work remaining, and clear instructions for the next agent. Stop after that first milestone; do not write the final deliverable. The dashboard will inject a simulated usage-limit interruption after your turn so another agent can finish.`
         : '';
-      const prompt = (handoffPromptText || `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${context ? `\n\nOPTIONAL PERSONAL KNOWLEDGE CONTEXT (read-only; use only when relevant):\n${context.packet}` : ''}${simulationInstructions}`) + correctionText;
+      const directVaultAccess = Boolean(context && run.includePrivate && !run.context?.policy?.categories?.length);
+      const vaultGuidance = context ? `\n\nOBSIDIAN KNOWLEDGE SOURCE: The selected Obsidian vault is at ${VAULT_PATH}. It may be a local clone of a GitHub repository. For requests about stored work, articles, projects, or personal history, search this vault first. ${directVaultAccess ? 'You may read its Markdown files directly when the snippets below are insufficient.' : 'Use only the included snippets; direct vault access is intentionally restricted by the current knowledge settings.'} Do not claim to have searched Google Drive or another connector unless you actually used it. Do not substitute an external connector for the vault without telling the user. If the requested item is absent, say that clearly. The dashboard handles its own Obsidian record after the task.\n\nMATCHING VAULT NOTES:\n${context.packet || '(No notes matched the current request.)'}` : '';
+      const prompt = (handoffPromptText ? `${handoffPromptText}${vaultGuidance}` : `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${vaultGuidance}${simulationInstructions}`) + correctionText;
       const started = Date.now();
       run = this.runStore.update(id, current => ({ ...current, status: 'running', provider, startedAt: current.startedAt || new Date().toISOString(), tasks: current.tasks.map(task => ({ ...task, assignee: provider, status: 'in_progress', startedAt: new Date().toISOString() })) }));
       this.runStore.event(id, 'execution.started', { provider, workspace: run.workspace, correctionsApplied: corrections.count });
@@ -193,13 +197,13 @@ export class DirectExecutor {
       };
       let result;
       if (provider === 'codex') {
-        result = await runProcess(resolveCodexCommand(), ['exec', '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
+        result = await runProcess(resolveCodexCommand(), ['exec', ...(run.codexModel ? ['-m', run.codexModel] : []), '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : []), '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseCodexOutput(result.stdout, finalPath);
       } else if (provider === 'claude') {
         const claudeCommand = process.platform === 'win32' ? process.execPath : resolveClaudeCommand();
         const claudeArgs = process.platform === 'win32'
-          ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'), '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir]
-          : ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir];
+          ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'), '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])]
+          : ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])];
         result = await runProcess(claudeCommand, claudeArgs, { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseClaudeOutput(result.stdout);
       } else {

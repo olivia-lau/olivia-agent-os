@@ -6,7 +6,7 @@ This source bundle is the shareable app code only. It does not include Olivia's 
 2. Unzip this bundle to a normal folder, open Terminal there, and run `npm ci`.
 3. Run `npm run desktop` to launch and test the app.
 4. On first launch, enter a workspace name and choose **your own Obsidian vault**. Choose **Local Obsidian vault** for a folder on the Mac, or **GitHub repository** for a GitHub-backed vault. No vault is copied from Olivia.
-5. Install and sign in to the Codex and/or Claude Code CLIs on that Mac if you want those agents to execute tasks. In **Agent connections**, refresh their status. Enter your own Perplexity API key if you use Perplexity.
+5. Install and sign in to the Codex and/or Claude Code CLIs on that Mac if you want those agents to execute tasks. In **Agent connections**, refresh their status. "Signed in" means a stored CLI credential exists, not that a prompt has been tested. The new **Sign out** controls sign out the machine-wide CLI too; use them only if you need to change accounts. Enter your own Perplexity API key if you use Perplexity.
 6. To build a macOS app ZIP on that Mac, run `npm run build:mac`. The output appears in `dist/`.
 
 ## Mac acceptance check
@@ -15,9 +15,13 @@ Before sharing the Mac app as ready, run `npm run check` and then `npm run deskt
 
 The desktop app looks for CLI commands in the user's interactive shell PATH, including Homebrew and common local installation folders. macOS may ask permission the first time Agent OS opens Terminal for sign-in; allow it for that flow.
 
+If Codex reports that its configured model is not supported with the Mac's ChatGPT account, open Codex in Terminal and use `/model` to see models offered to that account. Enter one of those exact model names in **Agent connections → Codex → Model override**, then retry the task. The override is stored in this Mac's Agent OS profile; it does not edit the global Codex configuration. Alternatively, change the model directly in Codex's `/model` menu and leave the override blank. If a task reports an expired `openseo-selfhost` or other MCP connector, reauthorize that connector from `/mcp` inside the native agent CLI. Agent sign-in and connector sign-in are separate.
+
+By default, each prompt uses the selected Obsidian vault as its first knowledge source. With a GitHub-backed vault, this means the local clone, so choose **Pull from GitHub** on the Knowledge page if you need newer remote changes before asking. Agent OS grants Codex and Claude Code access to the vault for unrestricted knowledge searches; if you disable private notes or select specific categories, the app passes only scoped excerpts instead. If a requested article is not in the selected vault, the agent should say so rather than silently search Google Drive.
+
 ## Use a GitHub repository as the Obsidian backend
 
-Version 0.2.4 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
+Version 0.2.5 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
 
 For a private repository, the reliable route is to sign in to GitHub Desktop on the Mac, clone **your own** vault repository there, then enter its URL and choose that local clone in Agent OS. A public repository, or a private repository already authenticated for Git on the Mac, can also be cloned by Agent OS from the URL. Do not put a personal access token in the repository URL.
 

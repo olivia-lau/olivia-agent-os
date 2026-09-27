@@ -19,12 +19,30 @@ function formatDate(value) {
   return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
+function failureSummary(error) {
+  const text = String(error || '');
+  const rejected = text.match(/The ['"]([^'"]+)['"] model is not supported when using Codex with a ChatGPT account/i);
+  if (rejected) return `Codex model ${rejected[1]} is not available to this ChatGPT account. Choose an available model in Codex’s /model menu, enter it under Agent connections, then retry.`;
+  if (/OAuth refresh token was rejected|invalid_grant/i.test(text) && !/model is not supported/i.test(text)) return 'An agent connector needs you to sign in again. Open that connector in the native agent app, then retry.';
+  return text.trim().split(/\r?\n/).filter(Boolean).at(-1)?.slice(0, 500) || 'The agent could not complete this task.';
+}
+
 function toast(message) {
   const element = $('#toast');
   element.textContent = message;
   element.classList.add('show');
   setTimeout(() => element.classList.remove('show'), 2500);
 }
+
+const codexModelInput = $('#codexModel');
+codexModelInput.addEventListener('change', async () => {
+  codexModelInput.value = codexModelInput.value.trim();
+  try {
+    const result = await api('/api/agent-settings', { method: 'POST', body: JSON.stringify({ codexModel: codexModelInput.value }) });
+    codexModelInput.value = result.agentSettings.codexModel;
+    toast(codexModelInput.value ? 'Codex model override saved for future Agent OS tasks' : 'Codex will use its default model');
+  } catch (error) { toast(error.message); }
+});
 
 function renderUsage(usage = {}) {
   for (const [provider, value] of Object.entries(usage)) {
@@ -47,13 +65,18 @@ function renderConnections(connections = {}) {
     const card = document.querySelector(`[data-connection="${id}"]`);
     if (!card) continue;
     const status = card.querySelector('.connection-status');
-    status.textContent = provider.ready ? 'Connected' : provider.loginState === 'opening' ? 'Opening sign-in…' : provider.loginState === 'prompt-opened' ? 'Finish in sign-in window' : provider.loginState === 'failed' ? 'Sign-in needs attention' : provider.installed ? 'Not connected' : 'CLI not found';
+    const lastRun = state.overview?.runs?.find(run => (run.providerHistory || []).some(attempt => attempt.provider === id));
+    const lastAttempt = lastRun?.providerHistory?.filter(attempt => attempt.provider === id).at(-1);
+    const executionState = lastAttempt ? lastAttempt.success ? 'last task succeeded' : 'last task failed' : 'execution unverified';
+    status.textContent = provider.ready ? `Signed in · ${executionState}` : provider.loginState === 'opening' ? 'Opening sign-in…' : provider.loginState === 'prompt-opened' ? 'Finish in sign-in window' : provider.loginState === 'failed' ? 'Sign-in needs attention' : provider.installed ? 'Not signed in' : 'CLI not found';
     status.classList.toggle('connected', Boolean(provider.ready));
     const login = card.querySelector('[data-login]');
     if (login) {
       login.textContent = provider.ready ? 'Already connected' : !provider.installed ? 'Install CLI first' : provider.loginState === 'opening' ? 'Opening…' : provider.loginState === 'prompt-opened' ? 'Open sign-in again' : `Sign in to ${id === 'codex' ? 'Codex' : 'Claude'}`;
       login.disabled = provider.ready || !provider.installed || provider.loginState === 'opening';
     }
+    const logout = card.querySelector('[data-logout]');
+    if (logout) logout.hidden = !provider.ready;
   }
   $('#forgetPerplexity').hidden = connections.perplexity?.credentialSource !== 'vault-encrypted';
 }
@@ -88,6 +111,7 @@ function renderOverview() {
     form.querySelector('button[type="submit"]').disabled = !provider.ready;
   }
   renderUsage(usage);
+  if (document.activeElement !== codexModelInput) codexModelInput.value = state.overview.agentSettings?.codexModel || '';
   renderConnections(connections);
   $('#categoryList').innerHTML = `<button class="category-button active" data-category="">Everything <span>${stats.notes}</span></button>` + categories.map(category =>
     `<button class="category-button" data-category="${escapeHtml(category.name)}">${escapeHtml(category.name)} <span>${category.noteCount}</span></button>`
@@ -197,7 +221,7 @@ function renderRuns(runs) {
       <header class="run-header"><div><p class="eyebrow">${escapeHtml(formatDate(run.createdAt))}</p><h3>${escapeHtml(run.title)}</h3><p class="muted">${escapeHtml(run.goal)}</p>${route}</div><span class="run-status ${escapeHtml(run.status)}">${escapeHtml(statusLabel(run.status))}</span></header>
       <div class="run-body">
         ${handoffCallout}
-        ${run.error ? `<p class="run-error">${escapeHtml(run.error)}</p>` : ''}
+        ${run.error ? `<div class="run-error"><strong>${escapeHtml(failureSummary(run.error))}</strong><details><summary>Technical details</summary><pre>${escapeHtml(run.error)}</pre></details></div>` : ''}
         <div class="task-graph">${tasks}</div>
         ${liveEvents ? `<h4>Live agent activity</h4><div class="live-activity">${liveEvents}</div>` : run.status === 'running' ? '<p class="muted">Agent started. Waiting for its first activity event…</p>' : ''}
         <div class="run-grid"><div class="run-main">${output || '<p class="muted">The executor’s result will appear here.</p>'}${files ? `<h4>Files</h4><div class="file-links">${files}</div>` : ''}</div><div class="run-side"><h4>${run.context ? 'Selected knowledge context' : 'Obsidian context'}</h4><p class="muted">${run.context ? `${run.context?.sources?.length || 0} sources · ${run.context?.characters || 0} characters · ${run.includePrivate ? 'private notes allowed' : 'private notes excluded'}` : 'Not used for this command.'}</p>${run.context ? `<div class="source-list">${sources}</div>` : ''}<h4>Recent run events</h4><div class="event-list">${events}</div></div></div>
@@ -332,6 +356,19 @@ $$('.agent-form').forEach(form => {
 });
 
 $('#connectionsPanel').addEventListener('click', async event => {
+  const logout = event.target.closest('[data-logout]');
+  if (logout) {
+    const provider = logout.dataset.logout;
+    if (!window.confirm(`Sign out of ${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI on this computer? This also affects that CLI outside Agent OS. Your task history will stay.`)) return;
+    logout.disabled = true;
+    try {
+      const result = await api('/api/connections/logout', { method: 'POST', body: JSON.stringify({ provider }) });
+      $('#connectionMessage').textContent = result.message;
+      await reloadOverview();
+    } catch (error) { toast(error.message); }
+    finally { logout.disabled = false; }
+    return;
+  }
   const button = event.target.closest('[data-login]');
   if (!button) return;
   button.disabled = true;

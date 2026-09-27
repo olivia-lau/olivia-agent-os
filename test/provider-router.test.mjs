@@ -22,7 +22,8 @@ test('detects approval, knowledge, memory, and handoff conditions', () => {
   assert.equal(requiresExecutionApproval('Delete the old export'), true);
   assert.equal(requiresExecutionApproval('Summarize the export'), false);
   assert.equal(shouldUseKnowledge('Use my previous notes', 'auto'), true);
-  assert.equal(shouldUseKnowledge('Fix this code', 'auto'), false);
+  assert.equal(shouldUseKnowledge('Fix this code', 'auto'), true);
+  assert.equal(shouldUseKnowledge('Fix this code', 'off'), false);
   assert.equal(shouldRemember('Research this topic', 'research', 'auto'), true);
   assert.equal(shouldRemember('Fix this file', 'code', 'auto'), true);
   assert.equal(tokenFailureKind('maximum context window exceeded'), 'context_limit');

@@ -25,13 +25,6 @@ export function buildContextPacket(index, {
   if (categories.length) candidates = candidates.filter(note => categories.includes(note.category));
   if (!includePrivate) candidates = candidates.filter(note => note.sensitivity !== 'private' && note.sensitivity !== 'restricted');
 
-  if (!candidates.length) {
-    candidates = index.recent({ limit: 100 }).filter(note =>
-      (!categories.length || categories.includes(note.category)) &&
-      (includePrivate || (note.sensitivity !== 'private' && note.sensitivity !== 'restricted'))
-    );
-  }
-
   const sources = [];
   const blocks = [];
   let used = 0;

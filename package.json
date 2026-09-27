@@ -1,6 +1,6 @@
 {
   "name": "olivia-agent-os-mvp",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "description": "Local-first Agent OS with Obsidian as the source of truth.",
@@ -26,10 +26,25 @@
   "build": {
     "appId": "local.agentos.desktop",
     "productName": "Agent OS",
-    "directories": { "output": "dist" },
-    "files": ["desktop/**/*", "src/**/*", "public/**/*", "package.json", "!**/*.test.mjs", "!**/data/**", "!**/vault/**"],
-    "mac": { "category": "public.app-category.productivity", "target": "zip" },
-    "win": { "target": "zip" }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "src/**/*",
+      "public/**/*",
+      "package.json",
+      "!**/*.test.mjs",
+      "!**/data/**",
+      "!**/vault/**"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "zip"
+    },
+    "win": {
+      "target": "zip"
+    }
   },
   "engines": {
     "node": ">=22"

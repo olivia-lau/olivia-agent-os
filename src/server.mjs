@@ -11,10 +11,11 @@ import { detectProviders } from './provider-router.mjs';
 import { DirectExecutor } from './direct-executor.mjs';
 import { getUsageStatus } from './usage-status.mjs';
 import { saveCorrection } from './corrections.mjs';
-import { beginLogin, connectionView, refreshConnections } from './connections.mjs';
+import { beginLogin, connectionView, disconnectProvider, refreshConnections } from './connections.mjs';
 import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity-executor.mjs';
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
 import { githubVaultStatus, pullGithubVault, publishAgentNotes } from './github-vault.mjs';
+import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
 const GITHUB_ROOT = process.env.OLIVIA_OS_GITHUB_ROOT || '';
@@ -209,6 +210,7 @@ const server = http.createServer(async (request, response) => {
         system: systemStatus(),
         providers,
         connections: connectionView(providers),
+        agentSettings: getAgentSettings(),
         usage: await getUsageStatus(providers),
         executionRoot: EXECUTION_ROOT,
         displayName: DISPLAY_NAME,
@@ -247,6 +249,15 @@ const server = http.createServer(async (request, response) => {
       const { provider } = await bodyJson(request);
       return json(response, 202, await beginLogin(provider, providers));
     }
+    if (request.method === 'POST' && url.pathname === '/api/connections/logout') {
+      checkLocalOrigin(request);
+      const { provider } = await bodyJson(request);
+      return json(response, 200, await disconnectProvider(provider, providers));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/agent-settings') {
+      checkLocalOrigin(request);
+      return json(response, 200, { agentSettings: saveAgentSettings(await bodyJson(request)) });
+    }
     if (request.method === 'POST' && url.pathname === '/api/connections/perplexity') {
       checkLocalOrigin(request);
       const { apiKey } = await bodyJson(request);
@@ -281,7 +292,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/commands') {
-      const run = directExecutor.create(await bodyJson(request));
+      const run = directExecutor.create({ ...await bodyJson(request), codexModel: getAgentSettings().codexModel });
       return json(response, 201, run);
     }
     if (request.method === 'GET' && url.pathname === '/api/runs') {

@@ -107,6 +107,9 @@ main { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
 .connection-card p { min-height: 30px; margin: 9px 0; }
 .connection-card form { display: flex; gap: 5px; }
 .connection-card input { min-width: 0; flex: 1; color: var(--text); background: #1d1d1d; border: 1px solid var(--line); border-radius: 5px; padding: 7px; font-size: 10px; }
+.connection-model { display: grid; gap: 5px; margin: 0 0 10px; color: var(--muted); font-size: 9px; }
+.connection-model input { width: 100%; }
+.connection-model small { line-height: 1.45; }
 .connection-card .button { white-space: nowrap; font-size: 9px; padding: 7px 9px; }
 .connection-card a, .connection-link { color: var(--blue); background: transparent; border: 0; padding: 0; font-size: 9px; cursor: pointer; text-decoration: none; }
 .connection-card a { display: inline-block; margin-top: 9px; }
@@ -158,6 +161,9 @@ main { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
 .handoff { color: var(--warm); font-size: 9px; border-left: 2px solid var(--warm); padding-left: 6px; }
 .run-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
 .run-error { color: var(--danger); font-size: 11px; }
+.run-error details { margin-top: 7px; color: var(--muted); }
+.run-error summary { cursor: pointer; }
+.run-error pre { max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 9px; background: #181818; border: 1px solid var(--line-soft); border-radius: 6px; }
 .command-form { position: fixed; z-index: 20; left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width) - min(900px, calc(100vw - var(--sidebar-width) - 60px))) / 2); bottom: 20px; width: min(900px, calc(100vw - var(--sidebar-width) - 60px)); background: #252525; border: 1px solid #454545; border-radius: 13px; box-shadow: 0 12px 46px #0008; padding: 10px; }
 body.preview-open .command-form { left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width) - var(--preview-width) - min(820px, calc(100vw - var(--sidebar-width) - var(--preview-width) - 40px))) / 2); width: min(820px, calc(100vw - var(--sidebar-width) - var(--preview-width) - 40px)); }
 .command-box textarea { width: 100%; min-height: 70px; max-height: 220px; resize: vertical; color: var(--text); background: transparent; border: 0; outline: 0; padding: 4px 6px; line-height: 1.5; font-size: 13px; }

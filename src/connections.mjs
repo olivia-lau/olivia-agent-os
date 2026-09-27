@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { detectProviders } from './provider-router.mjs';
 import { hasSessionPerplexityKey } from './perplexity-executor.mjs';
 import { resolveClaudeCommand, resolveCodexCommand } from './codex-command.mjs';
@@ -70,4 +71,38 @@ export async function beginLogin(id, providers) {
     refreshConnections(providers);
   }
   return { connections: connectionView(providers), message: `A visible ${process.platform === 'darwin' ? 'Terminal' : 'Windows Terminal'} window is opening for ${providers[id].name}. Follow its browser link or on-screen instructions, then choose Refresh status.` };
+}
+
+export async function disconnectProvider(id, providers) {
+  if (!['codex', 'claude'].includes(id)) throw new Error('Only Codex and Claude Code can be signed out here.');
+  if (active.has(id)) throw new Error(`${providers[id]?.name || id} sign-in is still running.`);
+  const claudeScript = path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+  const command = id === 'codex' ? resolveCodexCommand() : process.platform === 'win32' ? process.execPath : resolveClaudeCommand();
+  const args = id === 'codex' ? ['logout'] : process.platform === 'win32' ? [claudeScript, 'auth', 'logout'] : ['auth', 'logout'];
+  const env = command === process.execPath && process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env;
+  const child = spawn(command, args, { windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env });
+  active.set(id, child);
+  let output = '';
+  child.stdout.on('data', chunk => { output = `${output}${chunk}`.slice(-1200); });
+  child.stderr.on('data', chunk => { output = `${output}${chunk}`.slice(-1200); });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill(); reject(new Error('Sign-out timed out.')); }, 15000);
+      child.once('error', error => { clearTimeout(timer); reject(error); });
+      child.once('close', code => {
+        clearTimeout(timer);
+        code === 0 ? resolve() : reject(new Error(output.trim() || `Sign-out exited with code ${code}`));
+      });
+    });
+  } finally {
+    active.delete(id);
+  }
+  loginState[id] = 'idle';
+  refreshConnections(providers);
+  return {
+    connections: connectionView(providers),
+    message: providers[id].ready
+      ? `${providers[id].name} still reports a usable credential. An environment API key or external credential store may be taking precedence; check that agent's CLI in Terminal.`
+      : `${providers[id].name} signed out on this computer. You can sign in with the intended account now.`
+  };
 }
