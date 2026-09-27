@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Olivia Agent OS</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">O</span><div><strong id="brandName">Olivia OS</strong><small>Agent workspace</small></div></div>
+      <button class="new-task" data-view-target="mission"><span>＋</span> New task</button>
+      <nav class="side-nav" aria-label="Agent OS sections">
+        <button class="tab active" data-view="mission"><span>⌁</span> Tasks <b id="runBadge">0</b></button>
+        <button class="tab" data-view="search"><span>⌕</span> Knowledge</button>
+        <button class="tab" data-view="review"><span>✓</span> Review <b id="pendingBadge">0</b></button>
+        <button class="tab" data-view="activity"><span>◷</span> Activity</button>
+      </nav>
+      <div class="sidebar-section"><p>Recent tasks</p><div id="sidebarRuns" class="sidebar-runs"></div></div>
+      <div class="sidebar-footer"><span id="health" class="status"><i></i> Connecting</span><button id="refreshButton" class="icon-button" title="Refresh vault" aria-label="Refresh vault">↻</button></div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <div><p class="eyebrow">Personal agent operating system</p><h1 id="pageTitle">Tasks</h1></div>
+        <div class="top-actions"><span class="provider-pill">Choose agent</span><button id="togglePreview" class="button ghost">Files</button></div>
+      </header>
+      <div id="handoffBanner" class="handoff-banner" role="status" aria-live="polite" hidden></div>
+      <main>
+        <section id="missionView" class="view active mission-view">
+          <div class="conversation-heading"><h2>Choose an agent</h2><p>Each box starts one agent immediately. Completed work is recorded in Obsidian by default.</p></div>
+          <section class="agent-composers" aria-label="Single agent prompts">
+            <form class="agent-form" data-provider="codex"><div class="agent-form-heading"><strong>Codex</strong><span id="codexAvailability">Checking…</span></div><textarea aria-label="Prompt Codex" rows="4" maxlength="20000" placeholder="Ask Codex to build, edit, or work on your computer…"></textarea><div class="usage-meter" data-usage="codex"><div><span>Remaining usage</span><strong>Checking…</strong></div><div class="usage-track"><i></i></div><small></small></div><div class="agent-form-bottom"><span>Code and files</span><button type="submit" class="send-button" aria-label="Run with Codex">↑</button></div></form>
+            <form class="agent-form" data-provider="claude"><div class="agent-form-heading"><strong>Claude Code</strong><span id="claudeAvailability">Checking…</span></div><textarea aria-label="Prompt Claude Code" rows="4" maxlength="20000" placeholder="Ask Claude to write, analyze, or work on files…"></textarea><div class="usage-meter" data-usage="claude"><div><span>Remaining usage</span><strong>Checking…</strong></div><div class="usage-track"><i></i></div><small></small></div><div class="agent-form-bottom"><span>Writing and analysis</span><button type="submit" class="send-button" aria-label="Run with Claude Code">↑</button></div></form>
+            <form class="agent-form" data-provider="perplexity"><div class="agent-form-heading"><strong>Perplexity</strong><span id="perplexityAvailability">Checking…</span></div><textarea aria-label="Prompt Perplexity" rows="4" maxlength="20000" placeholder="Ask Perplexity to research current information…"></textarea><div class="usage-meter" data-usage="perplexity"><div><span>Remaining API credits</span><strong>Checking…</strong></div><div class="usage-track"><i></i></div><small></small><a class="usage-link" href="https://console.perplexity.ai/" target="_blank" rel="noopener noreferrer">Open Perplexity API Billing ↗</a></div><div class="agent-form-bottom"><span>Current research</span><button type="submit" class="send-button" aria-label="Run with Perplexity">↑</button></div></form>
+          </section>
+          <details id="connectionsPanel" class="connections-panel"><summary>Agent connections <span>Sign in and check which agents are ready</span></summary><div class="connection-grid">
+            <div class="connection-card" data-connection="codex"><div><strong>Codex</strong><span class="connection-status">Checking…</span></div><p>Use your ChatGPT account through Codex.</p><button class="button ghost" data-login="codex" type="button">Sign in to Codex</button></div>
+            <div class="connection-card" data-connection="claude"><div><strong>Claude Code</strong><span class="connection-status">Checking…</span></div><p>Start Claude Code sign-in in your browser.</p><button class="button ghost" data-login="claude" type="button">Sign in to Claude</button></div>
+            <div class="connection-card" data-connection="perplexity"><div><strong>Perplexity</strong><span class="connection-status">Checking…</span></div><p>Enter a Perplexity API key. It is saved encrypted in Obsidian and restored after dashboard restarts on this computer.</p><form id="perplexityConnectionForm"><input id="perplexityApiKey" type="password" autocomplete="off" spellcheck="false" aria-label="Perplexity API key" placeholder="Perplexity API key"><button class="button ghost" type="submit">Connect & save encrypted</button></form><button id="forgetPerplexity" class="connection-link" type="button">Forget saved key</button><a href="https://docs.perplexity.ai/docs/admin/api-key-management" target="_blank" rel="noopener noreferrer">How to get a key ↗</a></div>
+          </div><div class="connection-footer"><span id="connectionMessage">Credentials stay with each provider. This dashboard does not collect Codex or Claude passwords.</span><button id="refreshConnections" type="button" class="connection-link">Refresh status</button></div></details>
+          <details id="multiAgentPanel" class="multi-agent-panel"><summary>Multiagent task <span>Combine specialists when one agent is not enough</span></summary><form id="multiAgentForm"><textarea id="multiAgentText" aria-label="Multiagent prompt" rows="5" maxlength="12000" placeholder="Describe the outcome for a team of agents…"></textarea><div class="multi-agent-actions"><span>The plan is shown for review before the team runs.</span><button type="submit" class="button">Prepare team run</button></div></form></details>
+          <details class="command-options"><summary>Workspace and memory settings</summary><div class="option-grid"><label class="wide"><span>Workspace folder</span><input id="commandWorkspace" maxlength="1000"></label><label><span>Use Obsidian knowledge</span><select id="knowledgeMode"><option value="auto">Auto — when relevant</option><option value="on">Always</option><option value="off">Never</option></select></label><label><span>Record in Obsidian</span><select id="memoryMode"><option value="always">Always, after completion</option><option value="never">Never for this task</option></select></label><label><span>Knowledge categories</span><select id="commandCategories" multiple size="5"></select></label><div class="goal-options"><label><span>Record category</span><select id="commandOutputCategory"></select></label><label class="checkbox"><input id="commandPrivate" type="checkbox" checked><span>Private notes may be used</span></label></div><label id="handoffSimulationOption" class="checkbox wide" hidden><input id="simulateHandoff" type="checkbox"><span>Test only: simulate Codex usage limit after its checkpoint, then hand off</span></label><details class="wide runtime-details"><summary>Runtime status</summary><div id="systemStatus" class="system-list"></div></details></div></details>
+          <div id="runs" class="run-list"></div>
+        </section>
+
+        <section id="searchView" class="view">
+          <div class="view-heading"><div><p class="eyebrow">Obsidian backend</p><h2>Knowledge</h2></div><div id="stats" class="stats"></div></div>
+          <div id="githubBackend" class="github-backend" hidden><div><strong>GitHub-backed Obsidian vault</strong><p id="githubBackendStatus" class="muted">Checking repository…</p><p class="muted">Pull only when the local clone is clean. Publish uploads only Agent OS-created notes, never the rest of the vault. Resolve other changes in GitHub Desktop.</p></div><div class="github-actions"><button id="pullGithub" class="button ghost" type="button">Pull from GitHub</button><button id="publishGithub" class="button" type="button">Publish Agent OS notes</button></div></div>
+          <div class="search-panel"><label class="search-box"><span>Search</span><input id="searchInput" type="search" placeholder="Search notes, projects, and chat history…" autocomplete="off"></label><label><span>Category</span><select id="categoryFilter"><option value="">All categories</option></select></label></div>
+          <div class="content-grid"><aside><h3>Categories</h3><div id="categoryList" class="category-list"></div></aside><section><div class="section-heading"><div><p class="eyebrow" id="resultKicker">Recently updated</p><h3 id="resultTitle">Your knowledge</h3></div><span id="resultCount" class="muted"></span></div><div id="results" class="note-list"></div></section></div>
+        </section>
+
+        <section id="reviewView" class="view">
+          <div class="view-heading"><div><p class="eyebrow">Human approval</p><h2>Review queue</h2><p class="muted">Curated knowledge proposals wait for approval; completed single-agent run records save automatically.</p></div><button id="newProposalButton" class="button">Add proposal</button></div>
+          <div id="proposalForm" class="proposal-form hidden"><label><span>Title</span><input id="proposalTitle" maxlength="180"></label><label><span>Category</span><select id="proposalCategory"></select></label><label class="wide"><span>What should the note say?</span><textarea id="proposalContent" rows="8"></textarea></label><label class="wide"><span>Why add it?</span><input id="proposalReason" maxlength="1000"></label><div class="wide form-actions"><button id="cancelProposal" class="button ghost">Cancel</button><button id="saveProposal" class="button">Send for review</button></div></div>
+          <div id="proposals" class="proposal-list"></div>
+        </section>
+
+        <section id="activityView" class="view"><div class="view-heading"><div><p class="eyebrow">Audit trail</p><h2>Recent activity</h2></div></div><div id="activity" class="activity-list"></div></section>
+      </main>
+    </div>
+
+    <aside id="previewPanel" class="preview-panel" aria-label="File preview">
+      <div class="preview-top"><div id="previewTabs" class="preview-tabs"></div><button id="closePreview" class="icon-button" aria-label="Close preview">×</button></div>
+      <div id="previewBody" class="preview-body"><div class="preview-empty"><strong>No file selected</strong><span>Open a file from a task to preview it here.</span></div></div>
+    </aside>
+  </div>
+  <dialog id="noteDialog"><div class="dialog-bar"><div><p id="noteMeta" class="eyebrow"></p><h2 id="noteTitle"></h2></div><button id="closeDialog" class="icon-button" aria-label="Close">×</button></div><p id="notePath" class="path"></p><pre id="noteContent"></pre></dialog>
+  <dialog id="correctionDialog" class="correction-dialog"><form id="correctionForm"><div class="dialog-bar"><div><p class="eyebrow">Teach the system</p><h2>Correct this output</h2></div><button id="closeCorrection" type="button" class="icon-button" aria-label="Close">×</button></div><p class="correction-intro">Your correction will be saved in Obsidian and supplied to future agents when a similar task appears.</p><input id="correctionRunId" type="hidden"><label><span>What was wrong?</span><textarea id="correctionWrong" rows="3" required maxlength="5000"></textarea></label><label><span>What should the agent do next time?</span><textarea id="correctionGuidance" rows="4" required maxlength="5000"></textarea></label><label><span>When does this apply?</span><input id="correctionAppliesTo" required maxlength="300" placeholder="e.g. American Greetings Easter bunny concepts"></label><label><span>Category</span><select id="correctionCategory"></select></label><div class="form-actions"><button type="button" id="cancelCorrection" class="button ghost">Cancel</button><button type="submit" class="button">Save correction</button></div></form></dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

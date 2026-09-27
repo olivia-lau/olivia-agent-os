@@ -1,0 +1,22 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+export const APP_ROOT = path.resolve(here, '..');
+export const DEFAULT_VAULT_PATH = path.resolve(APP_ROOT, '..', 'vault');
+export const VAULT_PATH = path.resolve(process.env.OLIVIA_VAULT_PATH || DEFAULT_VAULT_PATH);
+export const PORT = Number(process.env.OLIVIA_OS_PORT || 4310);
+export const HOST = '127.0.0.1';
+export const DATA_PATH = path.resolve(process.env.OLIVIA_OS_DATA_PATH || path.join(APP_ROOT, 'data'));
+export const PROPOSALS_PATH = path.join(DATA_PATH, 'proposals.json');
+export const ACTIVITY_PATH = path.join(DATA_PATH, 'activity.json');
+export const RUNS_PATH = path.join(DATA_PATH, 'runs.json');
+export const EVENTS_PATH = path.join(DATA_PATH, 'events.jsonl');
+export const PERFORMANCE_PATH = path.join(DATA_PATH, 'performance.json');
+export const RUN_ARTIFACTS_PATH = path.join(DATA_PATH, 'runs');
+export const INBOX_PATH = path.resolve(process.env.OLIVIA_OS_INBOX_PATH || path.join(VAULT_PATH, '90 Agent OS Inbox'));
+export const AGENT_MODE = process.env.OLIVIA_AGENT_MODE || 'live';
+export const AGENT_TIMEOUT_MS = Number(process.env.OLIVIA_AGENT_TIMEOUT_MS || 900000);
+export const EXECUTION_ROOT = path.resolve(process.env.OLIVIA_EXECUTION_ROOT || path.join(APP_ROOT, '..', '..', '..'));
+export const MAX_HANDOFFS = Number(process.env.OLIVIA_MAX_HANDOFFS || 2);
+export const DISPLAY_NAME = process.env.OLIVIA_OS_DISPLAY_NAME || 'Olivia OS';

@@ -1,0 +1,30 @@
+# Build Agent OS for a Mac
+
+This source bundle is the shareable app code only. It does not include Olivia's vault, conversations, run history, or API keys.
+
+1. On the Mac, install current Node.js (version 22 or newer) and npm.
+2. Unzip this bundle to a normal folder, open Terminal there, and run `npm ci`.
+3. Run `npm run desktop` to launch and test the app.
+4. On first launch, enter a workspace name and choose **your own Obsidian vault**. Choose **Local Obsidian vault** for a folder on the Mac, or **GitHub repository** for a GitHub-backed vault. No vault is copied from Olivia.
+5. Install and sign in to the Codex and/or Claude Code CLIs on that Mac if you want those agents to execute tasks. In **Agent connections**, refresh their status. Enter your own Perplexity API key if you use Perplexity.
+6. To build a macOS app ZIP on that Mac, run `npm run build:mac`. The output appears in `dist/`.
+
+## Mac acceptance check
+
+Before sharing the Mac app as ready, run `npm run check` and then `npm run desktop` on the Mac. Choose the partner's vault. Confirm the Knowledge page indexes its Markdown notes. In Agent connections, confirm each installed CLI is detected; start Codex and Claude sign-in from the app if needed, follow the Terminal window, and refresh status. Run one small task with a signed-in agent and confirm its result and Obsidian record. Then run `npm run build:mac`, open the app from the resulting ZIP, and repeat the connection and small-task checks in the packaged app.
+
+The desktop app looks for CLI commands in the user's interactive shell PATH, including Homebrew and common local installation folders. macOS may ask permission the first time Agent OS opens Terminal for sign-in; allow it for that flow.
+
+## Use a GitHub repository as the Obsidian backend
+
+Version 0.2.4 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
+
+For a private repository, the reliable route is to sign in to GitHub Desktop on the Mac, clone **your own** vault repository there, then enter its URL and choose that local clone in Agent OS. A public repository, or a private repository already authenticated for Git on the Mac, can also be cloned by Agent OS from the URL. Do not put a personal access token in the repository URL.
+
+The Mac must also have the `git` command available. Check with `git --version` in Terminal; if it is missing, install Apple's Command Line Tools or another trusted Git distribution before linking the repository.
+
+On the Knowledge page, **Pull from GitHub** updates the clone only when it has no local changes. **Publish Agent OS notes** commits and pushes only notes and linked images created by Agent OS, after checking that the branch has no unseen remote or local commits. These actions are manual; the app never force-pushes, silently overwrites local files, or automatically uploads the rest of the vault. Use GitHub Desktop to review and resolve ordinary Obsidian edits or Git conflicts. If a push fails after a commit, the local commit remains; resolve it in GitHub Desktop before retrying.
+
+For the Mac acceptance check, first confirm the repository appears on Knowledge, search for a note from it, run a small task, then use **Publish Agent OS notes** and verify that new note appears in the intended GitHub repository. Make a harmless remote test note, pull it into the clean local clone, and confirm it appears in Knowledge. Do not test with sensitive personal notes.
+
+The macOS build must be tested on the Mac. This project does not produce a signed or notarized installer, so macOS may ask you to approve opening a locally built app. Never copy Olivia's `vault`, `data`, or operating-system Agent OS profile into the Mac build.

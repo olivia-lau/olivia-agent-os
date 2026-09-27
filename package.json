@@ -1,0 +1,37 @@
+{
+  "name": "olivia-agent-os-mvp",
+  "version": "0.2.4",
+  "private": true,
+  "type": "module",
+  "description": "Local-first Agent OS with Obsidian as the source of truth.",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "desktop": "electron .",
+    "build:windows": "electron-builder --win zip --x64 --publish never",
+    "build:mac": "electron-builder --mac zip --publish never",
+    "mcp": "node src/mcp.mjs",
+    "test": "node --test",
+    "check": "node --check src/server.mjs && node --check src/mcp.mjs && node --check src/orchestrator.mjs && node --check public/app.js && node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.1.0",
+    "@open-multi-agent/core": "^1.21.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "local.agentos.desktop",
+    "productName": "Agent OS",
+    "directories": { "output": "dist" },
+    "files": ["desktop/**/*", "src/**/*", "public/**/*", "package.json", "!**/*.test.mjs", "!**/data/**", "!**/vault/**"],
+    "mac": { "category": "public.app-category.productivity", "target": "zip" },
+    "win": { "target": "zip" }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
