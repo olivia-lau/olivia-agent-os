@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-os-conversations-'));
 process.env.OLIVIA_OS_DATA_PATH = path.join(root, 'data');
 process.env.OLIVIA_VAULT_PATH = path.join(root, 'vault');
-const { addAttachment, createThread, getThread, listThreads, removeAttachment, renameThread, saveAttachmentToVault, threadContext, touchThread } = await import('../src/conversation-store.mjs');
+const { addAttachment, createProject, createThread, getProject, getThread, listProjects, listThreads, removeAttachment, renameProject, renameThread, saveAttachmentToVault, threadContext, touchThread } = await import('../src/conversation-store.mjs');
 const { RunStore } = await import('../src/run-store.mjs');
 const { DirectExecutor } = await import('../src/direct-executor.mjs');
 
@@ -28,12 +28,29 @@ test('conversations carry recent turns and explicit references without crossing 
 });
 
 test('project names persist and are not replaced by a later prompt', () => {
-  const thread = createThread();
-  assert.equal(thread.title, 'New project');
-  renameThread(thread.id, 'Endura Vault');
+  const project = createProject();
+  const thread = createThread(project.id);
+  assert.equal(project.title, 'New project');
+  renameProject(project.id, 'Endura Vault');
+  renameThread(thread.id, 'First discussion');
   touchThread(thread.id, 'Unrelated prompt title');
-  assert.equal(getThread(thread.id).title, 'Endura Vault');
-  assert.throws(() => renameThread(thread.id, '  '), /project name/);
+  assert.equal(getProject(project.id).title, 'Endura Vault');
+  assert.equal(getThread(thread.id).title, 'First discussion');
+  assert.throws(() => renameProject(project.id, '  '), /project name/);
+  assert.throws(() => renameThread(thread.id, '  '), /conversation name/);
+  const second = createThread(project.id);
+  assert.equal(second.projectId, project.id);
+  assert.equal(listProjects().filter(item => item.id === project.id).length, 1);
+  assert.equal(listThreads().filter(item => item.projectId === project.id).length, 2);
+});
+
+test('conversations within one project keep independent context', () => {
+  const project = createProject('Shared project');
+  const first = createThread(project.id);
+  const second = createThread(project.id);
+  const runs = [{ threadId: first.id, mode: 'direct', command: 'Secret draft', finalOutput: 'First-only answer', provider: 'codex' }];
+  assert.equal(threadContext(runs, second.id), '');
+  assert.match(threadContext(runs, second.id, first.id), /First-only answer/);
 });
 
 test('attachments stay outside the vault until explicitly saved and reject unsafe paths', async () => {

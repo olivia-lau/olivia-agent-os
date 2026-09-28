@@ -102,9 +102,10 @@ export class DirectExecutor {
     }
     const requestedAttachmentIds = Array.isArray(input.attachmentIds) ? [...new Set(input.attachmentIds.map(String))] : [];
     const route = routeCommand(command, this.providers, { requested: requestedProvider, exclude: requestedAttachmentIds.length ? ['perplexity'] : [], performance: this.runStore.performanceSummary() });
-    const thread = input.threadId ? getThread(String(input.threadId)) : createThread();
+    const thread = input.threadId ? getThread(String(input.threadId)) : createThread(input.projectId ? String(input.projectId) : '');
+    if (input.projectId && thread.projectId !== String(input.projectId)) throw new Error('This conversation belongs to a different project.');
     if (this.runStore.list().some(run => run.threadId === thread.id && ['queued', 'running', 'handing_off', 'retrying', 'awaiting_execution_approval'].includes(run.status))) {
-      throw new Error('Wait for the current conversation task to finish before continuing it. You can start a new topic meanwhile.');
+      throw new Error('Wait for the current conversation task to finish before continuing it. You can start another conversation meanwhile.');
     }
     const referenceThreadId = bounded(input.referenceThreadId, 80);
     if (referenceThreadId && referenceThreadId !== thread.id) getThread(referenceThreadId);
@@ -124,7 +125,7 @@ export class DirectExecutor {
     const approvalRequired = requiresExecutionApproval(command);
     const run = this.runStore.create({
       mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, agentChoices,
-      threadId: thread.id, referenceThreadId, conversationContext, attachments,
+      threadId: thread.id, projectId: thread.projectId, referenceThreadId, conversationContext, attachments,
       provider: route.provider, providerReason: route.reason, taskType: route.taskType, providerHistory: [],
       knowledgeMode, memoryMode, outputCategory: bounded(input.outputCategory, 180) || 'Personal Generic',
       includePrivate: input.includePrivate !== false, context: context ? { query: context.query, policy: context.policy, sources: context.sources, packetHash: context.packetHash, characters: context.characters } : null,

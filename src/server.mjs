@@ -16,7 +16,7 @@ import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
 import { githubVaultStatus, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from './github-vault.mjs';
 import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
-import { addAttachment, adoptLegacyRun, createThread, listThreads, removeAttachment, renameThread, saveAttachmentToVault } from './conversation-store.mjs';
+import { addAttachment, adoptLegacyRun, createProject, createThread, listProjects, listThreads, removeAttachment, renameProject, renameThread, saveAttachmentToVault } from './conversation-store.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
 const GITHUB_ROOT = process.env.OLIVIA_OS_GITHUB_ROOT || '';
@@ -215,7 +215,7 @@ const server = http.createServer(async (request, response) => {
         proposals: listProposals(),
         activity: listActivity(12),
         runs: runsWithEvents(),
-        threads: listThreads(),
+        threads: listThreads(), projects: listProjects(),
         system: systemStatus(),
         providers,
         connections: connectionView(providers),
@@ -257,9 +257,24 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/threads') {
       return json(response, 200, { threads: listThreads() });
     }
+    if (request.method === 'GET' && url.pathname === '/api/projects') {
+      return json(response, 200, { projects: listProjects() });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/projects') {
+      checkLocalOrigin(request);
+      const { title } = await bodyJson(request);
+      const project = createProject(title || 'New project');
+      return json(response, 201, { project, thread: createThread(project.id) });
+    }
+    if (request.method === 'PATCH' && segments[0] === 'api' && segments[1] === 'projects' && segments[2] && segments.length === 3) {
+      checkLocalOrigin(request);
+      const { title } = await bodyJson(request);
+      return json(response, 200, { project: renameProject(segments[2], title) });
+    }
     if (request.method === 'POST' && url.pathname === '/api/threads') {
       checkLocalOrigin(request);
-      return json(response, 201, { thread: createThread() });
+      const { projectId } = await bodyJson(request);
+      return json(response, 201, { thread: createThread(projectId) });
     }
     if (request.method === 'PATCH' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments.length === 3) {
       checkLocalOrigin(request);

@@ -4,16 +4,85 @@ import crypto from 'node:crypto';
 import { DATA_PATH, VAULT_PATH } from './config.mjs';
 
 const threadsFile = path.join(DATA_PATH, 'threads.json');
+const projectsFile = path.join(DATA_PATH, 'projects.json');
 const attachmentRoot = path.join(DATA_PATH, 'thread-attachments');
 const MAX_FILE = 25_000_000;
 const MAX_TOTAL = 100_000_000;
 const MAX_FILES = 100;
 
-function readThreads() {
+function readThreadsRaw() {
   if (!fs.existsSync(threadsFile)) return [];
   const threads = JSON.parse(fs.readFileSync(threadsFile, 'utf8'));
   if (!Array.isArray(threads)) throw new Error('Conversation history needs repair; no changes were made.');
   return threads;
+}
+
+function saveProjects(projects) {
+  fs.mkdirSync(DATA_PATH, { recursive: true });
+  const temporary = `${projectsFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(projects, null, 2)}\n`, 'utf8');
+  fs.renameSync(temporary, projectsFile);
+}
+
+function readProjectsRaw() {
+  if (!fs.existsSync(projectsFile)) return [];
+  const projects = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+  if (!Array.isArray(projects)) throw new Error('Projects need repair; no changes were made.');
+  return projects;
+}
+
+function ensureProjects() {
+  const threads = readThreadsRaw();
+  const projects = readProjectsRaw();
+  const missing = threads.filter(thread => !thread.projectId || !projects.some(project => project.id === thread.projectId));
+  if (missing.length) {
+    // Preserve the original file and thread IDs before adding the project hierarchy.
+    if (fs.existsSync(threadsFile) && !fs.existsSync(path.join(DATA_PATH, 'threads.pre-projects.json'))) {
+      fs.copyFileSync(threadsFile, path.join(DATA_PATH, 'threads.pre-projects.json'), fs.constants.COPYFILE_EXCL);
+    }
+    for (const thread of missing) {
+      thread.projectId ||= `project-${thread.id}`;
+      if (!projects.some(project => project.id === thread.projectId)) {
+        projects.push({ id: thread.projectId, title: thread.title || 'Untitled project', createdAt: thread.createdAt, updatedAt: thread.updatedAt });
+      }
+    }
+    saveProjects(projects);
+    saveThreads(threads);
+  }
+  return { threads, projects };
+}
+
+function readThreads() { return ensureProjects().threads; }
+
+export function listProjects() {
+  const { threads, projects } = ensureProjects();
+  return projects.map(project => ({ ...project, updatedAt: threads.filter(thread => thread.projectId === project.id).reduce((latest, thread) => thread.updatedAt > latest ? thread.updatedAt : latest, project.updatedAt) }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export function getProject(id) {
+  const project = listProjects().find(item => item.id === id);
+  if (!project) throw new Error('Project not found.');
+  return project;
+}
+
+export function createProject(title = 'New project') {
+  const now = new Date().toISOString();
+  const project = { id: crypto.randomUUID(), title: String(title).slice(0, 90), createdAt: now, updatedAt: now };
+  saveProjects([project, ...readProjectsRaw()]);
+  return project;
+}
+
+export function renameProject(id, title) {
+  const clean = String(title || '').trim().replace(/\s+/g, ' ');
+  if (!clean || clean.length > 90) throw new Error('Enter a project name of 1–90 characters.');
+  const projects = readProjectsRaw();
+  const project = projects.find(item => item.id === id);
+  if (!project) throw new Error('Project not found.');
+  project.title = clean;
+  project.updatedAt = new Date().toISOString();
+  saveProjects(projects);
+  return project;
 }
 
 function saveThreads(threads) {
@@ -33,9 +102,10 @@ export function listThreads() {
   return readThreads().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export function createThread() {
+export function createThread(projectId = '') {
+  const project = projectId ? getProject(projectId) : createProject();
   const now = new Date().toISOString();
-  const thread = { id: crypto.randomUUID(), title: 'New project', createdAt: now, updatedAt: now, attachments: [] };
+  const thread = { id: crypto.randomUUID(), projectId: project.id, title: 'New conversation', createdAt: now, updatedAt: now, attachments: [] };
   saveThreads([thread, ...readThreads()]);
   return thread;
 }
@@ -43,7 +113,8 @@ export function createThread() {
 export function adoptLegacyRun(run) {
   const threads = readThreads();
   if (threads.some(item => item.id === run.id)) return threads.find(item => item.id === run.id);
-  const thread = { id: run.id, title: String(run.title || 'Previous task').slice(0, 90), createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, attachments: [] };
+  const project = createProject(String(run.title || 'Previous task').slice(0, 90));
+  const thread = { id: run.id, projectId: project.id, title: String(run.title || 'Previous task').slice(0, 90), createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, attachments: [] };
   saveThreads([thread, ...threads]);
   return thread;
 }
@@ -60,10 +131,10 @@ export function touchThread(id, title) {
 
 export function renameThread(id, title) {
   const clean = String(title || '').trim().replace(/\s+/g, ' ');
-  if (!clean || clean.length > 90) throw new Error('Enter a project name of 1–90 characters.');
+  if (!clean || clean.length > 90) throw new Error('Enter a conversation name of 1–90 characters.');
   const threads = readThreads();
   const thread = threads.find(item => item.id === id);
-  if (!thread) throw new Error('Project not found.');
+  if (!thread) throw new Error('Conversation not found.');
   thread.title = clean;
   thread.updatedAt = new Date().toISOString();
   saveThreads(threads);

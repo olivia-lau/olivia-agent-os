@@ -1,6 +1,6 @@
 import { imagesFromClipboard } from './clipboard-images.js';
 
-const state = { overview: null, query: '', category: '', threadId: '', selectedAttachments: [], previewTabs: [], activePreview: '', dismissedHandoff: sessionStorage.getItem('dismissedHandoff') || '' };
+const state = { overview: null, query: '', category: '', projectId: '', threadId: '', expandedProjects: new Set(), drafts: {}, selectedAttachments: [], previewTabs: [], activePreview: '', dismissedHandoff: sessionStorage.getItem('dismissedHandoff') || '' };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -185,20 +185,32 @@ $('#handoffBanner').addEventListener('click', event => {
 
 function renderSidebarRuns(runs) {
   const threads = state.overview?.threads || [];
+  const projects = state.overview?.projects || [];
   const legacy = runs.filter(run => !run.threadId).slice(0, 6);
-  $('#sidebarRuns').innerHTML = threads.slice(0, 30).map(thread => `<button class="sidebar-run ${thread.id === state.threadId ? 'active' : ''}" data-sidebar-thread="${escapeHtml(thread.id)}" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</button>`).join('') + legacy.map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No projects yet</span>';
+  const sidebar = $('#sidebarRuns');
+  for (const details of sidebar.querySelectorAll('[data-sidebar-project]')) {
+    if (details.open) state.expandedProjects.add(details.dataset.sidebarProject);
+    else state.expandedProjects.delete(details.dataset.sidebarProject);
+  }
+  sidebar.innerHTML = projects.map(project => {
+    const conversations = threads.filter(thread => thread.projectId === project.id);
+    const open = state.expandedProjects.has(project.id) || project.id === state.projectId;
+    return `<details class="sidebar-project" data-sidebar-project="${escapeHtml(project.id)}" ${open ? 'open' : ''}><summary title="${escapeHtml(project.title)}"><span>${escapeHtml(project.title)}</span><small>${conversations.length}</small></summary><div class="sidebar-conversations">${conversations.map(thread => `<button class="sidebar-run ${thread.id === state.threadId ? 'active' : ''}" data-sidebar-thread="${escapeHtml(thread.id)}" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</button>`).join('') || '<span class="muted">No conversations yet</span>'}</div></details>`;
+  }).join('') + legacy.map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No projects yet</span>';
 }
 
 function renderConversation() {
   const threads = state.overview?.threads || [];
   const current = threads.find(item => item.id === state.threadId);
-  $('#currentConversation').textContent = current ? current.title : 'No project selected';
+  const project = state.overview?.projects?.find(item => item.id === (current?.projectId || state.projectId));
+  $('#currentProject').textContent = project?.title || 'No project selected';
+  $('#currentConversation').textContent = current?.title || 'No conversation selected';
   const reference = $('#referenceConversation');
   const value = reference.value;
-  reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && !['New conversation', 'New project'].includes(item.title)).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`).join('');
+  reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && !['New conversation', 'New project'].includes(item.title)).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(state.overview?.projects?.find(project => project.id === item.projectId)?.title || 'Project')} / ${escapeHtml(item.title)}</option>`).join('');
   reference.value = [...reference.options].some(item => item.value === value) ? value : '';
   const prior = state.overview?.runs?.filter(run => run.threadId === state.threadId && run.finalOutput).length || 0;
-  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this project` : 'No previous turns', reference.value ? 'selected reference project (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
+  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this conversation` : 'No previous turns in this conversation', reference.value ? 'selected reference conversation (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
   $('#contextPreviewText').textContent = parts.filter(Boolean).join(' · ') + '. Older turns are omitted to keep the request focused.';
   $('#attachmentList').innerHTML = (current?.attachments || []).map(item => {
     const selected = state.selectedAttachments.some(value => value.id === item.id);
@@ -400,9 +412,21 @@ function commonCommandOptions() {
 
 async function ensureConversation() {
   if (state.threadId && state.threadId !== 'new') return state.threadId;
-  const { thread } = await api('/api/threads', { method: 'POST' });
+  if (!state.projectId) {
+    const { project, thread } = await api('/api/projects', { method: 'POST', body: '{}' });
+    state.overview.projects.unshift(project);
+    state.overview.threads.unshift(thread);
+    state.projectId = project.id;
+    state.threadId = thread.id;
+    state.expandedProjects.add(project.id);
+    renderConversation();
+    renderSidebarRuns(state.overview.runs);
+    return thread.id;
+  }
+  const { thread } = await api('/api/threads', { method: 'POST', body: JSON.stringify({ projectId: state.projectId }) });
   state.threadId = thread.id;
   state.overview.threads.unshift(thread);
+  state.expandedProjects.add(state.projectId);
   renderConversation();
   renderSidebarRuns(state.overview.runs);
   return thread.id;
@@ -538,25 +562,50 @@ $('#newTopic').addEventListener('click', () => $('.new-task').click());
 $('#renameProject').addEventListener('click', async () => {
   try {
     await ensureConversation();
-    $('#projectNameInput').value = state.overview.threads.find(item => item.id === state.threadId)?.title || '';
+    $('#projectNameInput').value = state.overview.projects.find(item => item.id === state.projectId)?.title || '';
     $('#renameProjectForm').hidden = false;
-    $('#currentConversation').hidden = true;
+    $('#currentProject').hidden = true;
     $('#projectNameInput').focus();
     $('#projectNameInput').select();
   } catch (error) { toast(error.message); }
 });
-function closeProjectRename() { $('#renameProjectForm').hidden = true; $('#currentConversation').hidden = false; }
+function closeProjectRename() { $('#renameProjectForm').hidden = true; $('#currentProject').hidden = false; }
 $('#cancelRenameProject').addEventListener('click', closeProjectRename);
 $('#projectNameInput').addEventListener('keydown', event => { if (event.key === 'Escape') closeProjectRename(); });
 $('#renameProjectForm').addEventListener('submit', async event => {
   event.preventDefault();
   try {
-    const { thread } = await api(`/api/threads/${encodeURIComponent(state.threadId)}`, { method: 'PATCH', body: JSON.stringify({ title: $('#projectNameInput').value }) });
-    state.overview.threads = state.overview.threads.map(item => item.id === thread.id ? thread : item);
+    const { project } = await api(`/api/projects/${encodeURIComponent(state.projectId)}`, { method: 'PATCH', body: JSON.stringify({ title: $('#projectNameInput').value }) });
+    state.overview.projects = state.overview.projects.map(item => item.id === project.id ? project : item);
     closeProjectRename();
     renderConversation();
     renderSidebarRuns(state.overview.runs);
     toast('Project renamed');
+  } catch (error) { toast(error.message); }
+});
+
+function closeConversationRename() { $('#renameConversationForm').hidden = true; $('#currentConversation').hidden = false; }
+$('#renameConversation').addEventListener('click', async () => {
+  try {
+    await ensureConversation();
+    $('#conversationNameInput').value = state.overview.threads.find(item => item.id === state.threadId)?.title || '';
+    $('#renameConversationForm').hidden = false;
+    $('#currentConversation').hidden = true;
+    $('#conversationNameInput').focus();
+    $('#conversationNameInput').select();
+  } catch (error) { toast(error.message); }
+});
+$('#cancelRenameConversation').addEventListener('click', closeConversationRename);
+$('#conversationNameInput').addEventListener('keydown', event => { if (event.key === 'Escape') closeConversationRename(); });
+$('#renameConversationForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    const { thread } = await api(`/api/threads/${encodeURIComponent(state.threadId)}`, { method: 'PATCH', body: JSON.stringify({ title: $('#conversationNameInput').value }) });
+    state.overview.threads = state.overview.threads.map(item => item.id === thread.id ? thread : item);
+    closeConversationRename();
+    renderConversation();
+    renderSidebarRuns(state.overview.runs);
+    toast('Conversation renamed');
   } catch (error) { toast(error.message); }
 });
 
@@ -781,17 +830,40 @@ $$('.tab').forEach(tab => tab.addEventListener('click', () => {
   $(`#${tab.dataset.view}View`).classList.add('active');
   $('#pageTitle').textContent = { mission: 'Tasks', search: 'Knowledge', review: 'Review', activity: 'Activity' }[tab.dataset.view] || 'Olivia OS';
 }));
-$('.new-task').addEventListener('click', async () => {
-  state.threadId = 'new';
+function switchConversation(threadId, projectId) {
+  if (state.threadId) state.drafts[state.threadId] = Object.fromEntries($$('.agent-form').map(form => [form.dataset.provider, form.querySelector('textarea').value]));
+  state.threadId = threadId;
+  state.projectId = projectId;
   state.selectedAttachments = [];
   $('#referenceConversation').value = '';
   closeProjectRename();
-  try { await ensureConversation(); } catch (error) { toast(error.message); return; }
+  closeConversationRename();
+  for (const form of $$('.agent-form')) form.querySelector('textarea').value = state.drafts[threadId]?.[form.dataset.provider] || '';
   renderConversation();
-  renderRuns([]);
+  renderRuns(state.overview?.runs?.filter(run => run.threadId === threadId) || []);
   renderSidebarRuns(state.overview?.runs || []);
   $('.tab[data-view="mission"]').click();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+$('.new-task').addEventListener('click', async () => {
+  try {
+    const { project, thread } = await api('/api/projects', { method: 'POST', body: '{}' });
+    state.overview.projects.unshift(project);
+    state.overview.threads.unshift(thread);
+    state.expandedProjects.add(project.id);
+    switchConversation(thread.id, project.id);
+  } catch (error) { toast(error.message); return; }
   $('.agent-form[data-provider="codex"] textarea').focus();
+});
+$('#newConversation').addEventListener('click', async () => {
+  try {
+    if (!state.projectId) { $('.new-task').click(); return; }
+    const { thread } = await api('/api/threads', { method: 'POST', body: JSON.stringify({ projectId: state.projectId }) });
+    state.overview.threads.unshift(thread);
+    switchConversation(thread.id, thread.projectId);
+    $('.agent-form[data-provider="codex"] textarea').focus();
+  } catch (error) { toast(error.message); }
 });
 $('#sidebarRuns').addEventListener('click', event => {
   const button = event.target.closest('[data-sidebar-run]');
@@ -799,13 +871,8 @@ $('#sidebarRuns').addEventListener('click', event => {
   if (!button && !thread) return;
   $('.tab[data-view="mission"]').click();
   if (thread) {
-    state.threadId = thread.dataset.sidebarThread;
-    state.selectedAttachments = [];
-    $('#referenceConversation').value = '';
-    renderConversation();
-    renderRuns(state.overview.runs.filter(run => run.threadId === state.threadId));
-    renderSidebarRuns(state.overview.runs);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const selected = state.overview.threads.find(item => item.id === thread.dataset.sidebarThread);
+    if (selected) switchConversation(selected.id, selected.projectId);
     return;
   }
   document.querySelector(`#run-${CSS.escape(button.dataset.sidebarRun)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
