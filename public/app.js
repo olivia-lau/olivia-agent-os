@@ -483,6 +483,9 @@ for (const id of ['filePicker', 'folderPicker']) {
   });
 }
 const drop = $('#attachmentDrop');
+drop.addEventListener('click', event => {
+  if (event.target === drop || event.target.tagName === 'SPAN') drop.focus();
+});
 document.addEventListener('paste', async event => {
   const prompt = event.target.closest?.('.agent-form textarea');
   if (!prompt && !drop.contains(event.target)) return;
@@ -498,7 +501,10 @@ document.addEventListener('paste', async event => {
     toast('Perplexity cannot read local images here. Paste into Codex or Claude instead.');
     return;
   }
-  try { await addFiles(images); }
+  try {
+    await addFiles(images);
+    toast(`${images.length} image${images.length === 1 ? '' : 's'} added as reference ${images.length === 1 ? 'file' : 'files'}`);
+  }
   catch (error) { toast(error.message); }
 });
 drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('dragging'); });

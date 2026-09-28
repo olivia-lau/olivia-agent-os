@@ -10,9 +10,21 @@ const userData = process.platform === 'win32'
 const settingsPath = path.join(userData, 'settings.json');
 if (!fs.existsSync(settingsPath)) throw new Error('Open the standalone Agent OS app once and choose your vault before using the Codex-hosted dashboard.');
 
+try {
+  const response = await fetch('http://127.0.0.1:4311/api/overview', { signal: AbortSignal.timeout(1500) });
+  const overview = response.ok ? await response.json() : null;
+  if (overview?.stats && Array.isArray(overview?.threads)) {
+    console.log('Agent OS is already running. Open it in Codex at http://127.0.0.1:4311/');
+    process.exit(0);
+  }
+} catch { /* No Agent OS dashboard is listening on the Codex port. */ }
+
 if (process.platform === 'win32') {
-  const processes = execFileSync('tasklist', ['/FI', 'IMAGENAME eq Agent OS.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
-  if (/"Agent OS\.exe"/i.test(processes)) throw new Error('Close the standalone Agent OS window after its active tasks finish. The live dashboard must not write to the same profile simultaneously.');
+  const commandLines = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name = 'Agent OS.exe'").CommandLine | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true });
+  const parsed = JSON.parse(commandLines || 'null');
+  const processes = (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean);
+  const standaloneOpen = processes.some(command => /^"[^"]*Agent OS\.exe"\s*$/i.test(command));
+  if (standaloneOpen) throw new Error('Close the standalone Agent OS window after its active tasks finish. The live dashboard must not write to the same profile simultaneously.');
 }
 
 const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
