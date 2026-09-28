@@ -58,8 +58,10 @@ export async function prepareGithubVault({ repoUrl, existingFolder = '', managed
     catch (error) { throw new Error(`${error.message} For a private repository, sign in with GitHub Desktop, clone it there, then choose that folder in Agent OS.`); }
   }
   if (!fs.existsSync(destination) || !fs.statSync(destination).isDirectory()) throw new Error('Choose an existing local clone of that GitHub repository.');
-  const root = path.resolve(await git(['rev-parse', '--show-toplevel'], destination));
-  if (root !== destination) throw new Error('Choose the root folder of the GitHub clone, not a folder inside it.');
+  // macOS may report /private/var/... for a folder created under /var/....
+  // Compare canonical paths so a valid clone root is not rejected.
+  const root = fs.realpathSync(path.resolve(await git(['rev-parse', '--show-toplevel'], destination)));
+  if (root !== fs.realpathSync(destination)) throw new Error('Choose the root folder of the GitHub clone, not a folder inside it.');
   const actualId = githubRepoId(await git(['config', '--get', 'remote.origin.url'], root));
   if (actualId !== repoId) throw new Error('The selected folder is connected to a different GitHub repository. No files were changed.');
   await verifyGithubVaultAccess(root, repoId);
