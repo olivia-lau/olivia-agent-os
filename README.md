@@ -6,7 +6,7 @@ From version 0.2.4, first-run setup can link a GitHub repository containing an O
 
 A local-first execution console for choosing an agent and giving it a natural-language task. Its primary job is to perform work in the selected workspace. Obsidian provides optional context and records completed work by default.
 
-## Projects, attachments, and model settings (v0.2.12)
+## Projects, attachments, and model settings (v0.2.13)
 
 Each single-agent prompt belongs to a project in the left sidebar. Select a project to continue with up to four recent completed turns and a short digest of older turns. **New project** starts with clean context, and **Rename** changes its name without changing its history. You can explicitly select one other project as a read-only reference. Imported chat archives remain available through Obsidian knowledge search, not through this project picker. The **What the agent will receive** panel previews the scope. A follow-up waits until the prior task in that project finishes.
 

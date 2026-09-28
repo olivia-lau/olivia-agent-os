@@ -34,7 +34,7 @@ test('links only a matching GitHub clone and refuses to pull over local changes'
     run(['remote', 'set-url', 'origin', 'https://github.com/partner/notes.git'], folder);
     run(['config', `url.${pathToFileURL(remote).href}.insteadOf`, 'https://github.com/partner/notes.git'], folder);
     const linked = await prepareGithubVault({ repoUrl: 'https://github.com/partner/notes', existingFolder: folder, managedRoot: path.join(folder, 'unused') });
-    assert.equal(linked.repoRoot, folder);
+    assert.equal(linked.repoRoot, fs.realpathSync(folder));
     assert.equal(linked.repoId, 'partner/notes');
     assert.equal((await verifyGithubVaultAccess(folder, 'partner/notes')).repoId, 'partner/notes');
     await assert.rejects(prepareGithubVault({ repoUrl: 'https://github.com/partner/other', existingFolder: folder, managedRoot: path.join(folder, 'unused') }), /different GitHub repository/);
