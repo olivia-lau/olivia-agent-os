@@ -1,3 +1,5 @@
+import { imagesFromClipboard } from './clipboard-images.js';
+
 const state = { overview: null, query: '', category: '', threadId: '', selectedAttachments: [], previewTabs: [], activePreview: '', dismissedHandoff: sessionStorage.getItem('dismissedHandoff') || '' };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -457,6 +459,24 @@ for (const id of ['filePicker', 'folderPicker']) {
   });
 }
 const drop = $('#attachmentDrop');
+document.addEventListener('paste', async event => {
+  const prompt = event.target.closest?.('.agent-form textarea');
+  if (!prompt && !drop.contains(event.target)) return;
+  const images = imagesFromClipboard(event.clipboardData);
+  if (!images.length) return;
+  event.preventDefault();
+  const text = event.clipboardData.getData('text/plain');
+  if (prompt && text) {
+    prompt.setRangeText(text, prompt.selectionStart, prompt.selectionEnd, 'end');
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (prompt?.closest('.agent-form')?.dataset.provider === 'perplexity') {
+    toast('Perplexity cannot read local images here. Paste into Codex or Claude instead.');
+    return;
+  }
+  try { await addFiles(images); }
+  catch (error) { toast(error.message); }
+});
 drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('dragging'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
 drop.addEventListener('drop', async event => {
