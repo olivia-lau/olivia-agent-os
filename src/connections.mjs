@@ -7,14 +7,14 @@ import { resolveClaudeCommand, resolveCodexCommand } from './codex-command.mjs';
 const loginState = { codex: 'idle', claude: 'idle' };
 const active = new Map();
 
-export function refreshConnections(providers) {
+export function refreshConnections(providers, { settlePending = false } = {}) {
   Object.assign(providers, detectProviders());
   if (hasSessionPerplexityKey()) {
     Object.assign(providers.perplexity, { installed: true, ready: true, detail: 'Encrypted vault API key loaded; verified on first request' });
   }
   for (const id of ['codex', 'claude']) {
     if (providers[id].ready) loginState[id] = 'connected';
-    else if (loginState[id] === 'connected') loginState[id] = 'idle';
+    else if (loginState[id] === 'connected' || (settlePending && loginState[id] === 'prompt-opened')) loginState[id] = 'idle';
   }
   return connectionView(providers);
 }

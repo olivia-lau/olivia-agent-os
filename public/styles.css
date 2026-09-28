@@ -105,6 +105,7 @@ main { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
 .connection-status.connected { color: var(--green); }
 .connection-card p, .connection-footer { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .connection-card p { min-height: 30px; margin: 9px 0; }
+.connection-diagnostic { color: var(--muted); font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; margin: -2px 0 10px; }
 .connection-card form { display: flex; gap: 5px; }
 .connection-card input { min-width: 0; flex: 1; color: var(--text); background: #1d1d1d; border: 1px solid var(--line); border-radius: 5px; padding: 7px; font-size: 10px; }
 .connection-model { display: grid; gap: 5px; margin: 0 0 10px; color: var(--muted); font-size: 9px; }

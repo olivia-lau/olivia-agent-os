@@ -57,15 +57,18 @@ function profilePath(vaultPath) {
 
 function addMacCliPaths() {
   const extra = ['/opt/homebrew/bin', '/usr/local/bin', path.join(app.getPath('home'), '.local', 'bin')];
+  let terminalPaths = [];
   try {
     const loginShell = process.env.SHELL || '/bin/zsh';
     const output = execFileSync(loginShell, ['-lic', 'printf "\nAGENT_OS_PATH_START%sAGENT_OS_PATH_END\n" "$PATH"'], {
       encoding: 'utf8', timeout: 5000, windowsHide: true
     });
     const match = output.match(/AGENT_OS_PATH_START([^\r\n]*?)AGENT_OS_PATH_END/);
-    if (match) extra.push(...match[1].split(path.delimiter));
+    if (match) terminalPaths = match[1].split(path.delimiter);
   } catch { /* Standard installation paths remain available. */ }
-  process.env.PATH = [...new Set([...(process.env.PATH || '').split(path.delimiter), ...extra]
+  // Finder/Electron can inherit a different PATH from Terminal. Prefer the
+  // login shell's order so status checks and task execution use the same CLI.
+  process.env.PATH = [...new Set([...terminalPaths, ...extra, ...(process.env.PATH || '').split(path.delimiter)]
     .filter(candidate => candidate && path.isAbsolute(candidate) && fs.existsSync(candidate)))].join(path.delimiter);
 }
 

@@ -5,11 +5,12 @@ import { resolveClaudeCommand, resolveCodexCommand } from './codex-command.mjs';
 function commandStatus(command, args, successPattern) {
   try {
     const env = command === process.execPath && process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env;
-    const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, timeout: 8000, shell: false, env });
-    const text = `${result.stdout || ''}\n${result.stderr || ''}`;
-    return { installed: !result.error, ready: !result.error && result.status === 0 && successPattern.test(text), detail: text.trim().split(/\r?\n/).filter(Boolean).at(-1) || result.error?.message || 'Unavailable' };
+    const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, timeout: 15000, shell: false, env });
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    const detail = result.error?.message || output.trim().split(/\r?\n/).filter(Boolean).at(-1) || `Exited with status ${result.status ?? 'unknown'}`;
+    return { installed: result.error?.code !== 'ENOENT', ready: !result.error && result.status === 0 && successPattern.test(output), detail, commandPath: command };
   } catch (error) {
-    return { installed: false, ready: false, detail: error.message };
+    return { installed: error.code !== 'ENOENT', ready: false, detail: error.message, commandPath: command };
   }
 }
 

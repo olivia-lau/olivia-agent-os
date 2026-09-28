@@ -247,7 +247,7 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && url.pathname === '/api/connections/refresh') {
       checkLocalOrigin(request);
-      return json(response, 200, { connections: refreshConnections(providers) });
+      return json(response, 200, { connections: refreshConnections(providers, { settlePending: true }) });
     }
     if (request.method === 'POST' && url.pathname === '/api/connections/login') {
       checkLocalOrigin(request);

@@ -70,6 +70,15 @@ function renderConnections(connections = {}) {
     const executionState = lastAttempt ? lastAttempt.success ? 'last task succeeded' : 'last task failed' : 'execution unverified';
     status.textContent = provider.ready ? `Signed in · ${executionState}` : provider.loginState === 'opening' ? 'Opening sign-in…' : provider.loginState === 'prompt-opened' ? 'Finish in sign-in window' : provider.loginState === 'failed' ? 'Sign-in needs attention' : provider.installed ? 'Not signed in' : 'CLI not found · install guide below';
     status.classList.toggle('connected', Boolean(provider.ready));
+    if (id === 'codex' || id === 'claude') {
+      let diagnostic = card.querySelector('.connection-diagnostic');
+      if (!diagnostic) {
+        diagnostic = document.createElement('div');
+        diagnostic.className = 'connection-diagnostic';
+        card.querySelector('p').after(diagnostic);
+      }
+      diagnostic.textContent = `${provider.commandPath || 'CLI path unknown'} · ${provider.detail || 'No status result'}`;
+    }
     const login = card.querySelector('[data-login]');
     if (login) {
       login.textContent = provider.ready ? 'Already connected' : provider.loginState === 'opening' ? 'Opening…' : provider.loginState === 'prompt-opened' ? 'Open sign-in again' : `Sign in to ${id === 'codex' ? 'Codex' : 'Claude'}`;
