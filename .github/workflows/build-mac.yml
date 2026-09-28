@@ -1,0 +1,30 @@
+name: Build Mac app
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Build Intel and Apple Silicon ZIPs
+        run: npx electron-builder --mac zip --x64 --arm64 --publish never --config.directories.output=dist/ci-mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Attach Mac apps to release
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/ci-mac/*.zip
+        env:
+          GH_TOKEN: ${{ github.token }}

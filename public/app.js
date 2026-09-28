@@ -232,7 +232,10 @@ function activityText(event) {
 }
 
 function renderRuns(runs) {
-  $('#runs').innerHTML = runs.length ? runs.map(run => {
+  const container = $('#runs');
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && container.contains(selection.anchorNode)) return;
+  const markup = runs.length ? runs.map(run => {
     const tasks = (run.tasks || []).map(task => `
       <div class="task ${escapeHtml(task.status)}"><span>${escapeHtml(task.assignee)}</span><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.status.replaceAll('_', ' '))}${task.durationMs ? ` · ${(task.durationMs / 1000).toFixed(1)}s` : ''}</span></div>
     `).join('');
@@ -253,7 +256,7 @@ function renderRuns(runs) {
     if (run.status === 'awaiting_execution_approval') actions = `<div class="run-actions"><button class="button danger" data-run-action="reject-execution" data-run-id="${run.id}">Cancel</button><button class="button" data-run-action="approve-execution" data-run-id="${run.id}">Confirm and execute</button></div>`;
     const outputTitle = run.mode === 'direct' ? 'Result' : 'Proposed output';
     const verification = run.verification ? `<div class="verification"><strong>Verification · ${run.verification?.pass ? 'passed' : 'needs attention'} · reviewer ${escapeHtml(run.reviewerVerdict || 'unknown')}</strong>${checks}</div>` : '';
-    const output = run.finalOutput ? `<h4>${outputTitle}</h4><div class="output-preview">${escapeHtml(run.finalOutput)}</div>${verification}` : '';
+    const output = run.finalOutput ? `<div class="output-heading"><h4>${outputTitle}</h4><button type="button" class="connection-link" data-copy-run="${escapeHtml(run.id)}">Copy selection or full result</button></div><div class="output-preview">${escapeHtml(run.finalOutput)}</div>${verification}` : '';
     const route = run.provider ? `<span class="provider-route">${escapeHtml(run.provider)} · ${escapeHtml(run.taskType || 'general')}</span><p class="muted">${escapeHtml(run.providerReason || '')}</p>${handoffs ? `<div class="handoff-list">${handoffs}</div>` : ''}` : '';
     return `<article class="run-card" id="run-${escapeHtml(run.id)}">
       <header class="run-header"><div><p class="eyebrow">${escapeHtml(formatDate(run.createdAt))}</p><h3>${escapeHtml(run.title)}</h3><p class="muted">${escapeHtml(run.goal)}</p>${route}</div><span class="run-status ${escapeHtml(run.status)}">${escapeHtml(statusLabel(run.status))}</span></header>
@@ -271,6 +274,10 @@ function renderRuns(runs) {
       </div>
     </article>`;
   }).join('') : '<div class="empty">No tasks yet. Use the composer below to start one.</div>';
+  if (container._lastMarkup !== markup) {
+    container.innerHTML = markup;
+    container._lastMarkup = markup;
+  }
 }
 
 async function search() {
@@ -472,7 +479,13 @@ $('#attachmentList').addEventListener('click', async event => {
   }
   const save = event.target.closest('[data-save-attachment]');
   if (save) {
-    if (!window.confirm('Copy this attachment into your Obsidian vault? If the vault is GitHub-backed, it can be uploaded later when you manually publish.')) return;
+    if (save.dataset.confirming !== 'true') {
+      save.dataset.confirming = 'true';
+      save.textContent = 'Confirm save to vault';
+      save.title = 'Copies this file to Obsidian locally. GitHub publishing is still manual.';
+      return;
+    }
+    save.disabled = true;
     try {
       const { attachment } = await api(`/api/threads/${encodeURIComponent(state.threadId)}/attachments/${encodeURIComponent(save.dataset.saveAttachment)}/save`, { method: 'POST' });
       state.selectedAttachments = state.selectedAttachments.map(item => item.id === attachment.id ? attachment : item);
@@ -480,18 +493,24 @@ $('#attachmentList').addEventListener('click', async event => {
       if (thread) thread.attachments = thread.attachments.map(item => item.id === attachment.id ? attachment : item);
       renderConversation();
       toast('Saved to Obsidian vault');
-    } catch (error) { toast(error.message); }
+    } catch (error) { save.disabled = false; toast(error.message); }
     return;
   }
   const button = event.target.closest('[data-remove-attachment]');
   if (!button) return;
-  if (!window.confirm('Delete this local attachment from the conversation?')) return;
+  if (button.dataset.confirming !== 'true') {
+    button.dataset.confirming = 'true';
+    button.textContent = 'Confirm delete';
+    return;
+  }
+  button.disabled = true;
   try {
     const { thread } = await api(`/api/threads/${encodeURIComponent(state.threadId)}/attachments/${encodeURIComponent(button.dataset.removeAttachment)}`, { method: 'DELETE' });
     state.overview.threads = state.overview.threads.map(item => item.id === thread.id ? thread : item);
     state.selectedAttachments = state.selectedAttachments.filter(item => item.id !== button.dataset.removeAttachment);
     renderConversation();
-  } catch (error) { toast(error.message); }
+    toast('Local attachment deleted');
+  } catch (error) { button.disabled = false; toast(error.message); }
 });
 $('#referenceConversation').addEventListener('change', renderConversation);
 $('#newTopic').addEventListener('click', () => $('.new-task').click());
@@ -530,11 +549,19 @@ function agentChoices() {
 }
 
 $$('.agent-form').forEach(form => {
+  const submitMessage = document.createElement('p');
+  submitMessage.className = 'agent-submit-message';
+  submitMessage.setAttribute('role', 'alert');
+  form.append(submitMessage);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const input = form.querySelector('textarea');
     const command = input.value.trim();
     if (!command) return toast('Enter a prompt first');
+    const submit = form.querySelector('button[type="submit"]');
+    const message = form.querySelector('.agent-submit-message');
+    message.textContent = '';
+    submit.disabled = true;
     try {
       const threadId = await ensureConversation();
       await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), agentChoices: agentChoices(), ...commonCommandOptions() }) });
@@ -542,7 +569,13 @@ $$('.agent-form').forEach(form => {
       state.selectedAttachments = [];
       await reloadOverview();
       toast(`${form.dataset.provider} started`);
-    } catch (error) { toast(error.message); }
+    } catch (error) {
+      message.textContent = error.message;
+      toast(error.message);
+      input.focus();
+    } finally {
+      submit.disabled = !state.overview?.providers?.[form.dataset.provider]?.ready;
+    }
   });
   form.querySelector('textarea').addEventListener('keydown', event => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); form.requestSubmit(); }
@@ -622,7 +655,39 @@ $('#multiAgentForm').addEventListener('submit', async event => {
   } catch (error) { toast(error.message); }
 });
 
+$('#runs').addEventListener('pointerdown', event => {
+  const copy = event.target.closest('[data-copy-run]');
+  if (!copy) return;
+  const preview = copy.closest('.run-main')?.querySelector('.output-preview');
+  const selection = window.getSelection();
+  copy.dataset.selectedText = selection && !selection.isCollapsed && preview?.contains(selection.anchorNode) && preview?.contains(selection.focusNode) ? selection.toString() : '';
+});
 $('#runs').addEventListener('click', async event => {
+  const copy = event.target.closest('[data-copy-run]');
+  if (copy) {
+    const run = state.overview?.runs?.find(item => item.id === copy.dataset.copyRun);
+    if (!run?.finalOutput) return toast('No result to copy yet');
+    const selection = window.getSelection();
+    const preview = copy.closest('.run-main')?.querySelector('.output-preview');
+    const selected = copy.dataset.selectedText || (selection && !selection.isCollapsed && preview?.contains(selection.anchorNode) && preview?.contains(selection.focusNode) ? selection.toString() : '');
+    try {
+      const value = selected || run.finalOutput;
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+      else {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.append(field);
+        field.select();
+        const copied = document.execCommand('copy');
+        field.remove();
+        if (!copied) throw new Error('Clipboard access unavailable');
+      }
+      toast(selected ? 'Selected text copied' : 'Full result copied');
+    } catch (error) { toast(`Could not copy: ${error.message}`); }
+    return;
+  }
   const file = event.target.closest('[data-file-path]');
   if (file) return openFilePreview(file.dataset.filePath);
   const correct = event.target.closest('[data-correct-run]');
@@ -782,12 +847,14 @@ setInterval(async () => {
   try {
     const { runs } = await api('/api/runs');
     const becameReviewable = runs.some(run => run.status === 'awaiting_output_approval') && !state.overview.runs.some(run => run.status === 'awaiting_output_approval');
+    const priorCompleted = state.overview.runs.filter(run => run.threadId === state.threadId && run.status === 'completed').length;
+    const nowCompleted = runs.filter(run => run.threadId === state.threadId && run.status === 'completed').length;
     state.overview.runs = runs;
     $('#runBadge').textContent = runs.filter(item => !['completed', 'rejected'].includes(item.status)).length;
     renderRuns(state.threadId ? runs.filter(run => run.threadId === state.threadId) : runs);
     renderHandoffBanner(runs);
     renderSidebarRuns(runs);
-    renderConversation();
+    if (priorCompleted !== nowCompleted) renderConversation();
     if (becameReviewable) await reloadOverview();
   } catch {}
 }, 1000);

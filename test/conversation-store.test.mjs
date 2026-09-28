@@ -51,6 +51,19 @@ test('attachments stay outside the vault until explicitly saved and reject unsaf
   assert.equal(fs.existsSync(saved.savedVaultPath), true);
 });
 
+test('saving or removing a file does not prevent the next project prompt', async () => {
+  const thread = createThread();
+  const first = await addAttachment(thread.id, 'brief.md', Readable.from([Buffer.from('first')]));
+  saveAttachmentToVault(thread.id, first.id);
+  const second = await addAttachment(thread.id, 'scratch.md', Readable.from([Buffer.from('second')]));
+  removeAttachment(thread.id, second.id);
+  const runStore = new RunStore({ runsPath: path.join(root, 'file-action-runs.json'), eventsPath: path.join(root, 'file-action-events.jsonl'), performancePath: path.join(root, 'file-action-performance.json') });
+  const executor = new DirectExecutor({ index: { search: () => [], read: () => null }, runStore, providers: { codex: { id: 'codex', name: 'Codex', ready: true } } });
+  const run = executor.create({ command: 'delete nothing; test prompt after file actions', provider: 'codex', threadId: thread.id, workspace: root });
+  assert.equal(run.threadId, thread.id);
+  assert.equal(run.status, 'awaiting_execution_approval');
+});
+
 test('direct runs keep their conversation, chosen files, and bounded prior context', async () => {
   const thread = createThread();
   const item = await addAttachment(thread.id, 'Notes/input.md', Readable.from([Buffer.from('hello')]));

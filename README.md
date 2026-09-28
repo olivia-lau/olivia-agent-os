@@ -6,13 +6,19 @@ From version 0.2.4, first-run setup can link a GitHub repository containing an O
 
 A local-first execution console for choosing an agent and giving it a natural-language task. Its primary job is to perform work in the selected workspace. Obsidian provides optional context and records completed work by default.
 
-## Projects, attachments, and model settings (v0.2.10)
+## Projects, attachments, and model settings (v0.2.11)
 
 Each single-agent prompt belongs to a project in the left sidebar. Select a project to continue with up to four recent completed turns and a short digest of older turns. **New project** starts with clean context, and **Rename** changes its name without changing its history. You can explicitly select one other project as a read-only reference. Imported chat archives remain available through Obsidian knowledge search, not through this project picker. The **What the agent will receive** panel previews the scope. A follow-up waits until the prior task in that project finishes.
 
 Each agent box has its own model and effort controls. Blank model or effort uses that CLI's default. Codex and Claude Code pass the selection to their CLIs for that task; the available values depend on the signed-in account. Perplexity offers an Agent API preset/depth plus optional model and reasoning effort; this uses API billing, not website subscription usage. An agent handoff uses the recipient agent's settings from the same task. These choices do not edit the provider's global configuration.
 
 Use **Add files**, **Add folder**, or drag and drop. Uploaded files are stored in this machine's private Agent OS profile, not the Obsidian vault. Select which files to use in each prompt. Codex and Claude receive local paths and access to those files; the Perplexity API connection cannot read local attachments and will reject a request that selects them. A handoff keeps the same attachments. Limits are 25 MB per file, 100 MB and 100 files per conversation. **Save to vault** makes an explicit local Obsidian copy. For a GitHub-backed vault, that copy is not uploaded until **Publish Agent OS notes** is chosen. Deleting an unsaved local attachment removes its local copy. The separate Multiagent task flow remains run-based and does not yet use conversation attachments.
+
+File actions now use two clicks instead of a system confirmation popup, so focus stays in the dashboard. After a task, select text in its Result and copy normally, or use **Copy selection or full result**. If a prompt cannot start, the error remains beneath that agent's box.
+
+### Open the current source in Codex on this computer
+
+After any desktop Agent OS tasks finish, close the standalone Agent OS window. From this project folder run `npm run codex:live`, then open `http://127.0.0.1:4311/` in a Codex browser tab. This mode uses the same vault, projects, task history, and agent credentials as the standalone app, but must not run concurrently with it. The source server watches code changes, so future dashboard changes are available after a page refresh or automatic server restart without downloading another ZIP. Keep its terminal running while using the dashboard. The Mac partner continues using their own profile and vault.
 
 The complete MVP also requires goal intake, multi-agent orchestration, scoped context assembly, model/worker routing, executable verification, durable approvals, run journaling, and a unified run dashboard. See `BUILD_STATUS.md` for the corrected scope.
 

@@ -1,11 +1,12 @@
 {
   "name": "olivia-agent-os-mvp",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "type": "module",
   "description": "Local-first Agent OS with Obsidian as the source of truth.",
   "scripts": {
     "start": "node src/server.mjs",
+    "codex:live": "node --watch scripts/start-codex-dashboard.mjs",
     "desktop": "electron .",
     "build:windows": "electron-builder --win zip --x64 --publish never",
     "build:mac": "electron-builder --mac zip --publish never",
