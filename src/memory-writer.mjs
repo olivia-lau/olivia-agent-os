@@ -48,6 +48,8 @@ export function writeRunRecord(run, output, { vaultPath = VAULT_PATH } = {}) {
     `category: ${yaml(run.outputCategory || 'Personal Generic')}`,
     `provider: ${yaml(run.provider)}`,
     `run_id: ${yaml(run.id)}`,
+    ...(run.threadId ? [`conversation_id: ${yaml(run.threadId)}`] : []),
+    ...(run.referenceThreadId ? [`reference_conversation_id: ${yaml(run.referenceThreadId)}`] : []),
     `created: ${run.createdAt.slice(0, 10)}`,
     'sensitivity: private',
     '---', '',
@@ -59,6 +61,7 @@ export function writeRunRecord(run, output, { vaultPath = VAULT_PATH } = {}) {
     `- Agent: ${run.provider}`,
     ...(run.workspace ? [`- Workspace: \`${run.workspace}\``] : []),
     `- Agent OS run: \`${run.id}\``,
+    ...(run.attachments?.length ? [`- Local attachments used: ${run.attachments.map(item => item.relativePath).join(', ')} (files remain outside Obsidian unless explicitly saved)`] : []),
     ...(run.reviewerVerdict ? [`- Reviewer verdict: ${run.reviewerVerdict}`] : []),
     ...(run.handoffs?.length ? run.handoffs.map(item => `- Handoff: ${item.from} → ${item.to} (${item.reason})`) : []),
     ''

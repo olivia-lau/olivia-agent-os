@@ -16,6 +16,7 @@ import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
 import { githubVaultStatus, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from './github-vault.mjs';
 import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
+import { addAttachment, adoptLegacyRun, createThread, listThreads, removeAttachment, saveAttachmentToVault } from './conversation-store.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
 const GITHUB_ROOT = process.env.OLIVIA_OS_GITHUB_ROOT || '';
@@ -31,6 +32,11 @@ const publicRoot = path.join(APP_ROOT, 'public');
 const index = new VaultIndex(VAULT_PATH);
 index.refresh();
 const runStore = new RunStore();
+for (const run of runStore.list()) {
+  if (run.mode !== 'direct' || run.threadId) continue;
+  adoptLegacyRun(run);
+  runStore.update(run.id, { ...run, threadId: run.id });
+}
 const agentOS = new AgentOSOrchestrator({ index, runStore });
 const providers = detectProviders();
 refreshConnections(providers);
@@ -90,6 +96,7 @@ function noteSummary(note) {
 
 function agentNotePaths() {
   const paths = [];
+  for (const thread of listThreads()) for (const item of thread.attachments || []) if (item.savedVaultPath) paths.push(item.savedVaultPath);
   for (const run of runStore.list()) {
     if (run.memoryPath) {
       paths.push(run.memoryPath);
@@ -122,7 +129,7 @@ const fileTypes = {
 };
 
 function allowedRoots() {
-  return [...new Set([VAULT_PATH, RUN_ARTIFACTS_PATH, EXECUTION_ROOT, ...runStore.list().map(run => run.workspace).filter(Boolean)].map(root => path.resolve(root)))];
+  return [...new Set([VAULT_PATH, RUN_ARTIFACTS_PATH, path.join(DATA_PATH, 'thread-attachments'), EXECUTION_ROOT, ...runStore.list().map(run => run.workspace).filter(Boolean)].map(root => path.resolve(root)))];
 }
 
 function safeFilePath(value) {
@@ -152,6 +159,7 @@ function addRunFile(files, candidate, origin) {
 
 function runFiles(run) {
   const files = new Map();
+  for (const item of run.attachments || []) addRunFile(files, item.path, 'attachment');
   const output = String(run.finalOutput || '');
   const markdownPaths = [...output.matchAll(/\[[^\]]+\]\(<?((?:[A-Za-z]:[\\/]|\/)[^)>]+)>?\)/g)].map(match => match[1]);
   const plainPaths = [...output.matchAll(/(?:^|[\s`(])((?:[A-Za-z]:[\\/]|\/)[^\r\n<>"|?*]+?\.(?:png|jpe?g|gif|webp|svg|pdf|md|txt|json|html|css|m?js|tsx?|jsx|py|csv|xml|docx|xlsx|pptx|blend))/gim)].map(match => match[1]);
@@ -207,6 +215,7 @@ const server = http.createServer(async (request, response) => {
         proposals: listProposals(),
         activity: listActivity(12),
         runs: runsWithEvents(),
+        threads: listThreads(),
         system: systemStatus(),
         providers,
         connections: connectionView(providers),
@@ -244,6 +253,28 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/providers') {
       return json(response, 200, { providers, executionRoot: EXECUTION_ROOT });
+    }
+    if (request.method === 'GET' && url.pathname === '/api/threads') {
+      return json(response, 200, { threads: listThreads() });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/threads') {
+      checkLocalOrigin(request);
+      return json(response, 201, { thread: createThread() });
+    }
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments[3] === 'attachments' && segments.length === 4) {
+      checkLocalOrigin(request);
+      const attachment = await addAttachment(segments[2], url.searchParams.get('path'), request);
+      return json(response, 201, { attachment });
+    }
+    if (request.method === 'DELETE' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments[3] === 'attachments' && segments[4] && segments.length === 5) {
+      checkLocalOrigin(request);
+      return json(response, 200, { thread: removeAttachment(segments[2], segments[4]) });
+    }
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments[3] === 'attachments' && segments[4] && segments[5] === 'save' && segments.length === 6) {
+      checkLocalOrigin(request);
+      const attachment = saveAttachmentToVault(segments[2], segments[4]);
+      index.refresh();
+      return json(response, 200, { attachment });
     }
     if (request.method === 'POST' && url.pathname === '/api/connections/refresh') {
       checkLocalOrigin(request);

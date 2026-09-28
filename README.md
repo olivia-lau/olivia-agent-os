@@ -6,6 +6,12 @@ From version 0.2.4, first-run setup can link a GitHub repository containing an O
 
 A local-first execution console for choosing an agent and giving it a natural-language task. Its primary job is to perform work in the selected workspace. Obsidian provides optional context and records completed work by default.
 
+## Conversations and attachments (v0.2.9)
+
+Each single-agent prompt belongs to a conversation in the left sidebar. Selecting a conversation continues it with up to four recent completed turns and a short digest of older turns; **New topic** starts a clean conversation. You can explicitly select one other Agent OS conversation as a read-only reference. Imported chat archives remain available through Obsidian knowledge search, not through this conversation picker. The **What the agent will receive** panel previews the scope. A follow-up waits until the prior task in that conversation finishes.
+
+Use **Add files**, **Add folder**, or drag and drop. Uploaded files are stored in this machine's private Agent OS profile, not the Obsidian vault. Select which files to use in each prompt. Codex and Claude receive local paths and access to those files; the Perplexity API connection cannot read local attachments and will reject a request that selects them. A handoff keeps the same attachments. Limits are 25 MB per file, 100 MB and 100 files per conversation. **Save to vault** makes an explicit local Obsidian copy. For a GitHub-backed vault, that copy is not uploaded until **Publish Agent OS notes** is chosen. Deleting an unsaved local attachment removes its local copy. The separate Multiagent task flow remains run-based and does not yet use conversation attachments.
+
 The complete MVP also requires goal intake, multi-agent orchestration, scoped context assembly, model/worker routing, executable verification, durable approvals, run journaling, and a unified run dashboard. See `BUILD_STATUS.md` for the corrected scope.
 
 ## Start it

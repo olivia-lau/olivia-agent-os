@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { AGENT_TIMEOUT_MS, EXECUTION_ROOT, MAX_HANDOFFS, RUN_ARTIFACTS_PATH, VAULT_PATH } from './config.mjs';
+import { AGENT_TIMEOUT_MS, DATA_PATH, EXECUTION_ROOT, MAX_HANDOFFS, RUN_ARTIFACTS_PATH, VAULT_PATH } from './config.mjs';
 import { buildContextPacket } from './context-broker.mjs';
 import { relevantCorrections } from './corrections.mjs';
 import { writeRunRecord } from './memory-writer.mjs';
 import { runPerplexity } from './perplexity-executor.mjs';
 import { resolveClaudeCommand, resolveCodexCommand } from './codex-command.mjs';
 import { requiresExecutionApproval, routeCommand, shouldRemember, shouldUseKnowledge, tokenFailureKind } from './provider-router.mjs';
+import { createThread, getThread, threadContext, touchThread } from './conversation-store.mjs';
 
 function bounded(value, max) { return String(value || '').replaceAll('\0', '').trim().slice(0, max); }
 function titleFrom(command) { return bounded(command.split(/\r?\n/)[0], 90) || 'Untitled command'; }
@@ -99,7 +100,22 @@ export class DirectExecutor {
     if (simulateHandoff && (process.env.OLIVIA_ENABLE_HANDOFF_SIMULATION !== '1' || requestedProvider !== 'codex')) {
       throw new Error('Codex handoff simulation is not enabled.');
     }
-    const route = routeCommand(command, this.providers, { requested: requestedProvider, performance: this.runStore.performanceSummary() });
+    const requestedAttachmentIds = Array.isArray(input.attachmentIds) ? [...new Set(input.attachmentIds.map(String))] : [];
+    const route = routeCommand(command, this.providers, { requested: requestedProvider, exclude: requestedAttachmentIds.length ? ['perplexity'] : [], performance: this.runStore.performanceSummary() });
+    const thread = input.threadId ? getThread(String(input.threadId)) : createThread();
+    if (this.runStore.list().some(run => run.threadId === thread.id && ['queued', 'running', 'handing_off', 'retrying', 'awaiting_execution_approval'].includes(run.status))) {
+      throw new Error('Wait for the current conversation task to finish before continuing it. You can start a new topic meanwhile.');
+    }
+    const referenceThreadId = bounded(input.referenceThreadId, 80);
+    if (referenceThreadId && referenceThreadId !== thread.id) getThread(referenceThreadId);
+    const attachmentIds = requestedAttachmentIds;
+    const attachments = attachmentIds.map(id => {
+      const item = thread.attachments.find(value => value.id === id);
+      if (!item || !fs.existsSync(item.path)) throw new Error('An attachment is missing. Remove it and try again.');
+      return item;
+    });
+    if (attachments.length && route.provider === 'perplexity') throw new Error('This Perplexity connection cannot read local attachments. Choose Codex or Claude for this task.');
+    const conversationContext = threadContext(this.runStore.list(), thread.id, referenceThreadId);
     const knowledgeMode = ['auto', 'on', 'off'].includes(input.knowledgeMode) ? input.knowledgeMode : 'auto';
     const memoryMode = ['auto', 'always', 'never'].includes(input.memoryMode) ? input.memoryMode : 'always';
     const categories = Array.isArray(input.categories) ? input.categories.map(value => bounded(value, 180)).filter(Boolean) : [];
@@ -108,6 +124,7 @@ export class DirectExecutor {
     const approvalRequired = requiresExecutionApproval(command);
     const run = this.runStore.create({
       mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, codexModel,
+      threadId: thread.id, referenceThreadId, conversationContext, attachments,
       provider: route.provider, providerReason: route.reason, taskType: route.taskType, providerHistory: [],
       knowledgeMode, memoryMode, outputCategory: bounded(input.outputCategory, 180) || 'Personal Generic',
       includePrivate: input.includePrivate !== false, context: context ? { query: context.query, policy: context.policy, sources: context.sources, packetHash: context.packetHash, characters: context.characters } : null,
@@ -116,6 +133,7 @@ export class DirectExecutor {
       handoffs: [], finalOutput: null, error: null, startedAt: null, completedAt: null, proposalId: null
     });
     this.runStore.event(run.id, 'router.selected', { provider: route.provider, taskType: route.taskType, reason: route.reason });
+    touchThread(thread.id, titleFrom(command));
     if (!approvalRequired) setTimeout(() => this.execute(run.id).catch(() => {}), 0);
     return run;
   }
@@ -142,7 +160,7 @@ export class DirectExecutor {
     const prior = run.providerHistory.at(-1);
     const checkpointPath = path.join(RUN_ARTIFACTS_PATH, id, 'handoff.md');
     if (prior?.error === 'provider_limit' && fs.existsSync(checkpointPath) && run.handoffs.length < MAX_HANDOFFS) {
-      const next = routeCommand(run.command, this.providers, { requested: 'auto', exclude: [...new Set(run.providerHistory.map(item => item.provider))], performance: this.runStore.performanceSummary() });
+      const next = routeCommand(run.command, this.providers, { requested: 'auto', exclude: [...new Set([...run.providerHistory.map(item => item.provider), ...(run.attachments?.length ? ['perplexity'] : [])])], performance: this.runStore.performanceSummary() });
       const checkpoint = fs.readFileSync(checkpointPath, 'utf8').slice(0, 30000);
       const handoff = { from: prior.provider, to: next.provider, reason: 'provider_limit', simulated: Boolean(prior.simulated || run.simulateHandoff), at: new Date().toISOString(), checkpointPath };
       const updated = this.runStore.update(id, current => ({ ...current, status: 'handing_off', provider: next.provider, taskType: next.taskType, providerReason: `Continued from ${prior.provider}'s checkpoint after ${handoff.simulated ? 'simulated ' : ''}provider limit.`, error: null, completedAt: null, handoffs: [...current.handoffs, handoff], tasks: current.tasks.map(task => ({ ...task, assignee: next.provider, status: 'pending', startedAt: null, completedAt: null, durationMs: null })) }));
@@ -150,7 +168,7 @@ export class DirectExecutor {
       setTimeout(() => this.execute(id, { providerOverride: next.provider, handoffPromptText: handoffPrompt(run, prior.provider, 'provider limit', checkpoint) }).catch(() => {}), 0);
       return updated;
     }
-    const route = routeCommand(run.command, this.providers, { requested: run.requestedProvider || 'auto', performance: this.runStore.performanceSummary() });
+    const route = routeCommand(run.command, this.providers, { requested: run.requestedProvider || 'auto', exclude: run.attachments?.length ? ['perplexity'] : [], performance: this.runStore.performanceSummary() });
     const updated = this.runStore.update(id, current => ({ ...current, status: 'queued', provider: route.provider, providerReason: route.reason, error: null, completedAt: null, tasks: current.tasks.map(task => ({ ...task, assignee: route.provider, status: 'pending', startedAt: null, completedAt: null, durationMs: null })) }));
     this.runStore.event(id, 'execution.retrying', { provider: route.provider });
     setTimeout(() => this.execute(id).catch(() => {}), 0);
@@ -175,8 +193,11 @@ export class DirectExecutor {
         ? `\n\nCONTROLLED HANDOFF TEST: Complete only phase 1 of this task. Research and analyze the options, then write a substantial checkpoint at ${checkpointPath} with findings, source links, work remaining, and clear instructions for the next agent. Stop after that first milestone; do not write the final deliverable. The dashboard will inject a simulated usage-limit interruption after your turn so another agent can finish.`
         : '';
       const directVaultAccess = Boolean(context && run.includePrivate && !run.context?.policy?.categories?.length);
+      const conversationGuidance = run.conversationContext ? `\n\nPREVIOUS CONVERSATION (context only; the latest user command takes precedence):\n${run.conversationContext}` : '';
+      const attachmentGuidance = run.attachments?.length ? `\n\nATTACHED LOCAL FILES (read these paths directly; they are not in Obsidian unless separately saved):\n${run.attachments.map(item => `- ${item.relativePath}: ${item.path}`).join('\n')}` : '';
+      const attachmentDir = run.attachments?.length ? path.join(DATA_PATH, 'thread-attachments', run.threadId) : '';
       const vaultGuidance = context ? `\n\nOBSIDIAN KNOWLEDGE SOURCE: The selected Obsidian vault is at ${VAULT_PATH}. It may be a local clone of a GitHub repository. For requests about stored work, articles, projects, or personal history, search this vault first. ${directVaultAccess ? 'You may read its Markdown files directly when the snippets below are insufficient.' : 'Use only the included snippets; direct vault access is intentionally restricted by the current knowledge settings.'} Do not claim to have searched Google Drive or another connector unless you actually used it. Do not substitute an external connector for the vault without telling the user. If the requested item is absent, say that clearly. The dashboard handles its own Obsidian record after the task.\n\nMATCHING VAULT NOTES:\n${context.packet || '(No notes matched the current request.)'}` : '';
-      const prompt = (handoffPromptText ? `${handoffPromptText}${vaultGuidance}` : `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${vaultGuidance}${simulationInstructions}`) + correctionText;
+      const prompt = (handoffPromptText ? `${handoffPromptText}${conversationGuidance}${attachmentGuidance}${vaultGuidance}` : `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${conversationGuidance}${attachmentGuidance}${vaultGuidance}${simulationInstructions}`) + correctionText;
       const started = Date.now();
       run = this.runStore.update(id, current => ({ ...current, status: 'running', provider, startedAt: current.startedAt || new Date().toISOString(), tasks: current.tasks.map(task => ({ ...task, assignee: provider, status: 'in_progress', startedAt: new Date().toISOString() })) }));
       this.runStore.event(id, 'execution.started', { provider, workspace: run.workspace, correctionsApplied: corrections.count });
@@ -197,17 +218,17 @@ export class DirectExecutor {
       };
       let result;
       if (provider === 'codex') {
-        result = await runProcess(resolveCodexCommand(), ['exec', ...(run.codexModel ? ['-m', run.codexModel] : []), '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : []), '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
+        result = await runProcess(resolveCodexCommand(), ['exec', ...(run.codexModel ? ['-m', run.codexModel] : []), '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : []), '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseCodexOutput(result.stdout, finalPath);
       } else if (provider === 'claude') {
         const claudeCommand = process.platform === 'win32' ? process.execPath : resolveClaudeCommand();
         const claudeArgs = process.platform === 'win32'
-          ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'), '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])]
-          : ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])];
+          ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'), '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])]
+          : ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])];
         result = await runProcess(claudeCommand, claudeArgs, { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseClaudeOutput(result.stdout);
       } else {
-        const researchPrompt = `Answer this research request using current information. Include sources where available. You cannot edit the local workspace or carry out computer actions; say so if the request requires them.\n\n${handoffPromptText ? `HANDOFF FROM PREVIOUS AGENT (continue its work; verify any claims before relying on them):\n${handoffPromptText}` : `USER REQUEST:\n${run.command}`}${context ? `\n\nRELEVANT PRIVATE CONTEXT (use only if needed):\n${context.packet}` : ''}${correctionText}`;
+        const researchPrompt = `Answer this research request using current information. Include sources where available. You cannot edit the local workspace or carry out computer actions; say so if the request requires them.\n\n${handoffPromptText ? `HANDOFF FROM PREVIOUS AGENT (continue its work; verify any claims before relying on them):\n${handoffPromptText}` : `USER REQUEST:\n${run.command}`}${conversationGuidance}${context ? `\n\nRELEVANT PRIVATE CONTEXT (use only if needed):\n${context.packet}` : ''}${correctionText}`;
         result = await runPerplexity(researchPrompt, {
           onProgress: activity => this.runStore.event(id, 'execution.progress', { provider, ...activity })
         });
@@ -242,7 +263,7 @@ export class DirectExecutor {
         : `${result.stderr || ''}\n${result.stdout || ''}`.trim();
       const limitKind = result.timedOut ? 'timeout' : tokenFailureKind(failureText);
       if (limitKind && run.handoffs.length < MAX_HANDOFFS) {
-        const exclude = limitKind === 'provider_limit' ? [...new Set([...run.providerHistory.map(item => item.provider), provider])] : [];
+        const exclude = [...new Set([...(limitKind === 'provider_limit' ? [...run.providerHistory.map(item => item.provider), provider] : []), ...(run.attachments?.length ? ['perplexity'] : [])])];
         let next;
         try { next = routeCommand(run.command, this.providers, { requested: 'auto', exclude, performance: this.runStore.performanceSummary() }); }
         catch {

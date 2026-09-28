@@ -1,4 +1,4 @@
-const state = { overview: null, query: '', category: '', previewTabs: [], activePreview: '', dismissedHandoff: sessionStorage.getItem('dismissedHandoff') || '' };
+const state = { overview: null, query: '', category: '', threadId: '', selectedAttachments: [], previewTabs: [], activePreview: '', dismissedHandoff: sessionStorage.getItem('dismissedHandoff') || '' };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -131,9 +131,10 @@ function renderOverview() {
   renderProposals(proposals);
   renderActivity(activity);
   renderSystem(system);
-  renderRuns(runs);
+  renderRuns(state.threadId ? runs.filter(run => run.threadId === state.threadId) : runs);
   renderHandoffBanner(runs);
   renderSidebarRuns(runs);
+  renderConversation();
   search();
 }
 
@@ -175,7 +176,26 @@ $('#handoffBanner').addEventListener('click', event => {
 });
 
 function renderSidebarRuns(runs) {
-  $('#sidebarRuns').innerHTML = runs.slice(0, 12).map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No tasks yet</span>';
+  const threads = state.overview?.threads || [];
+  const legacy = runs.filter(run => !run.threadId).slice(0, 6);
+  $('#sidebarRuns').innerHTML = threads.slice(0, 30).map(thread => `<button class="sidebar-run ${thread.id === state.threadId ? 'active' : ''}" data-sidebar-thread="${escapeHtml(thread.id)}" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</button>`).join('') + legacy.map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No conversations yet</span>';
+}
+
+function renderConversation() {
+  const threads = state.overview?.threads || [];
+  const current = threads.find(item => item.id === state.threadId);
+  $('#currentConversation').textContent = current ? `${current.title} · continuing` : 'New topic · no previous chat context';
+  const reference = $('#referenceConversation');
+  const value = reference.value;
+  reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && item.title !== 'New conversation').map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`).join('');
+  reference.value = [...reference.options].some(item => item.value === value) ? value : '';
+  const prior = state.overview?.runs?.filter(run => run.threadId === state.threadId && run.finalOutput).length || 0;
+  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this conversation` : 'No previous turns', reference.value ? 'selected reference conversation (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
+  $('#contextPreviewText').textContent = parts.filter(Boolean).join(' · ') + '. Older turns are omitted to keep the request focused.';
+  $('#attachmentList').innerHTML = (current?.attachments || []).map(item => {
+    const selected = state.selectedAttachments.some(value => value.id === item.id);
+    return `<span class="attachment-chip"><span title="${escapeHtml(item.relativePath)}">${escapeHtml(item.relativePath)}</span><button type="button" data-toggle-attachment="${escapeHtml(item.id)}">${selected ? 'Use in prompt ✓' : 'Use in next prompt'}</button>${item.savedVaultPath ? '<small>Saved to vault</small>' : `<button type="button" data-save-attachment="${escapeHtml(item.id)}">Save to vault</button><button type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="Delete local ${escapeHtml(item.name)}">Delete</button>`}</span>`;
+  }).join('');
 }
 
 function renderSystem(services) {
@@ -363,6 +383,113 @@ function commonCommandOptions() {
     simulateHandoff: $('#simulateHandoff').checked };
 }
 
+async function ensureConversation() {
+  if (state.threadId && state.threadId !== 'new') return state.threadId;
+  const { thread } = await api('/api/threads', { method: 'POST' });
+  state.threadId = thread.id;
+  state.overview.threads.unshift(thread);
+  renderConversation();
+  renderSidebarRuns(state.overview.runs);
+  return thread.id;
+}
+
+async function addFiles(files) {
+  if (!files.length) return;
+  const threadId = await ensureConversation();
+  if (files.length + state.selectedAttachments.length > 100) throw new Error('Maximum 100 files per conversation.');
+  for (const { file, relativePath } of files) {
+    if (file.size > 25_000_000) throw new Error(`${file.name} is over the 25 MB file limit.`);
+    const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/attachments?path=${encodeURIComponent(relativePath)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Could not attach ${file.name}.`);
+    state.selectedAttachments.push(data.attachment);
+    state.overview.threads.find(item => item.id === threadId)?.attachments.push(data.attachment);
+    renderConversation();
+  }
+  toast(`${files.length} file${files.length === 1 ? '' : 's'} attached locally`);
+}
+
+function pickedFiles(list) {
+  return [...list].map(file => ({ file, relativePath: file.webkitRelativePath || file.name }));
+}
+
+async function droppedFiles(dataTransfer) {
+  const entries = [...(dataTransfer.items || [])].map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return pickedFiles(dataTransfer.files);
+  const collected = [];
+  async function visit(entry, prefix = '') {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      collected.push({ file, relativePath: `${prefix}${file.name}` });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      while (true) {
+        const children = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+        if (!children.length) break;
+        for (const child of children) await visit(child, `${prefix}${entry.name}/`);
+      }
+    }
+  }
+  for (const entry of entries) await visit(entry);
+  return collected;
+}
+
+$('#addFiles').addEventListener('click', () => $('#filePicker').click());
+$('#addFolder').addEventListener('click', () => $('#folderPicker').click());
+for (const id of ['filePicker', 'folderPicker']) {
+  $(`#${id}`).addEventListener('change', async event => {
+    try { await addFiles(pickedFiles(event.target.files)); }
+    catch (error) { toast(error.message); }
+    event.target.value = '';
+  });
+}
+const drop = $('#attachmentDrop');
+drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('dragging'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+drop.addEventListener('drop', async event => {
+  event.preventDefault();
+  drop.classList.remove('dragging');
+  try { await addFiles(await droppedFiles(event.dataTransfer)); }
+  catch (error) { toast(error.message); }
+});
+$('#attachmentList').addEventListener('click', async event => {
+  const toggle = event.target.closest('[data-toggle-attachment]');
+  if (toggle) {
+    const existing = state.selectedAttachments.find(item => item.id === toggle.dataset.toggleAttachment);
+    if (existing) state.selectedAttachments = state.selectedAttachments.filter(item => item.id !== existing.id);
+    else {
+      const item = state.overview.threads.find(thread => thread.id === state.threadId)?.attachments.find(value => value.id === toggle.dataset.toggleAttachment);
+      if (item) state.selectedAttachments.push(item);
+    }
+    renderConversation();
+    return;
+  }
+  const save = event.target.closest('[data-save-attachment]');
+  if (save) {
+    if (!window.confirm('Copy this attachment into your Obsidian vault? If the vault is GitHub-backed, it can be uploaded later when you manually publish.')) return;
+    try {
+      const { attachment } = await api(`/api/threads/${encodeURIComponent(state.threadId)}/attachments/${encodeURIComponent(save.dataset.saveAttachment)}/save`, { method: 'POST' });
+      state.selectedAttachments = state.selectedAttachments.map(item => item.id === attachment.id ? attachment : item);
+      const thread = state.overview.threads.find(item => item.id === state.threadId);
+      if (thread) thread.attachments = thread.attachments.map(item => item.id === attachment.id ? attachment : item);
+      renderConversation();
+      toast('Saved to Obsidian vault');
+    } catch (error) { toast(error.message); }
+    return;
+  }
+  const button = event.target.closest('[data-remove-attachment]');
+  if (!button) return;
+  if (!window.confirm('Delete this local attachment from the conversation?')) return;
+  try {
+    const { thread } = await api(`/api/threads/${encodeURIComponent(state.threadId)}/attachments/${encodeURIComponent(button.dataset.removeAttachment)}`, { method: 'DELETE' });
+    state.overview.threads = state.overview.threads.map(item => item.id === thread.id ? thread : item);
+    state.selectedAttachments = state.selectedAttachments.filter(item => item.id !== button.dataset.removeAttachment);
+    renderConversation();
+  } catch (error) { toast(error.message); }
+});
+$('#referenceConversation').addEventListener('change', renderConversation);
+$('#newTopic').addEventListener('click', () => $('.new-task').click());
+
 $$('.agent-form').forEach(form => {
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -370,8 +497,10 @@ $$('.agent-form').forEach(form => {
     const command = input.value.trim();
     if (!command) return toast('Enter a prompt first');
     try {
-      await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, ...commonCommandOptions() }) });
+      const threadId = await ensureConversation();
+      await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), ...commonCommandOptions() }) });
       input.value = '';
+      state.selectedAttachments = [];
       await reloadOverview();
       toast(`${form.dataset.provider} started`);
     } catch (error) { toast(error.message); }
@@ -529,13 +658,30 @@ $$('.tab').forEach(tab => tab.addEventListener('click', () => {
   $('#pageTitle').textContent = { mission: 'Tasks', search: 'Knowledge', review: 'Review', activity: 'Activity' }[tab.dataset.view] || 'Olivia OS';
 }));
 $('.new-task').addEventListener('click', () => {
+  state.threadId = 'new';
+  state.selectedAttachments = [];
+  $('#referenceConversation').value = '';
+  renderConversation();
+  renderRuns([]);
+  renderSidebarRuns(state.overview?.runs || []);
   $('.tab[data-view="mission"]').click();
   $('.agent-form[data-provider="codex"] textarea').focus();
 });
 $('#sidebarRuns').addEventListener('click', event => {
   const button = event.target.closest('[data-sidebar-run]');
-  if (!button) return;
+  const thread = event.target.closest('[data-sidebar-thread]');
+  if (!button && !thread) return;
   $('.tab[data-view="mission"]').click();
+  if (thread) {
+    state.threadId = thread.dataset.sidebarThread;
+    state.selectedAttachments = [];
+    $('#referenceConversation').value = '';
+    renderConversation();
+    renderRuns(state.overview.runs.filter(run => run.threadId === state.threadId));
+    renderSidebarRuns(state.overview.runs);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
   document.querySelector(`#run-${CSS.escape(button.dataset.sidebarRun)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 $('#togglePreview').addEventListener('click', () => {
@@ -597,9 +743,10 @@ setInterval(async () => {
     const becameReviewable = runs.some(run => run.status === 'awaiting_output_approval') && !state.overview.runs.some(run => run.status === 'awaiting_output_approval');
     state.overview.runs = runs;
     $('#runBadge').textContent = runs.filter(item => !['completed', 'rejected'].includes(item.status)).length;
-    renderRuns(runs);
+    renderRuns(state.threadId ? runs.filter(run => run.threadId === state.threadId) : runs);
     renderHandoffBanner(runs);
     renderSidebarRuns(runs);
+    renderConversation();
     if (becameReviewable) await reloadOverview();
   } catch {}
 }, 1000);

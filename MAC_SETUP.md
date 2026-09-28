@@ -2,6 +2,8 @@
 
 This source bundle is the shareable app code only. It does not include Olivia's vault, conversations, run history, or API keys.
 
+For the Endura Mac, Codex runs as the **Codex CLI through VS Code**, not the Codex desktop app. Agent OS uses that same local CLI login; installing the Codex desktop app is not required.
+
 1. On the Mac, install current Node.js (version 22 or newer) and npm.
 2. Unzip this bundle to a normal folder, open Terminal there, and run `npm ci`.
 3. Run `npm run desktop` to launch and test the app.
@@ -11,7 +13,7 @@ This source bundle is the shareable app code only. It does not include Olivia's 
 
 ## Mac acceptance check
 
-Before sharing the Mac app as ready, run `npm run check` and then `npm run desktop` on the Mac. Choose the partner's vault. Confirm the Knowledge page indexes its Markdown notes. In Agent connections, confirm each installed CLI is detected; start Codex and Claude sign-in from the app if needed, follow the Terminal window, and refresh status. Run one small task with a signed-in agent and confirm its result and Obsidian record. Then run `npm run build:mac`, open the app from the resulting ZIP, and repeat the connection and small-task checks in the packaged app.
+Before sharing the Mac app as ready, run `npm run check` and then `npm run desktop` on the Mac. Choose the partner's vault. Confirm the Knowledge page indexes its Markdown notes. In Agent connections, confirm each installed CLI is detected; start Codex and Claude sign-in from the app if needed, follow the Terminal window, and refresh status. Run one small task with a signed-in agent and confirm its result and Obsidian record. Test **Add files**, **Add folder**, **New topic**, and reopening a conversation from the sidebar; verify that an unsaved upload is absent from the vault and that **Save to vault** copies only the chosen file. Then run `npm run build:mac`, open the app from the resulting ZIP, and repeat the connection and small-task checks in the packaged app.
 
 The desktop app checks the same interactive-shell PATH that Terminal uses, before its own inherited app PATH. macOS may ask permission the first time Agent OS opens Terminal for sign-in; allow it for that flow. If Terminal shows `Logged in using ChatGPT` from `codex login status` but the dashboard does not show Codex as signed in, fully quit and reopen Agent OS, then choose **Refresh status**. The Codex card now shows the exact CLI path and status response that the dashboard checked; share those two lines when reporting a mismatch. You do not need to reinstall Codex or sign in again when Terminal already reports a login.
 
@@ -21,7 +23,7 @@ By default, each prompt uses the selected Obsidian vault as its first knowledge 
 
 ## Use a GitHub repository as the Obsidian backend
 
-Version 0.2.8 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
+Version 0.2.9 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
 
 For a private repository, the reliable route is to sign in to GitHub Desktop on the Mac, clone **your own** vault repository there, then enter its URL and choose that local clone in Agent OS. A public repository, or a private repository already authenticated for Git on the Mac, can also be cloned by Agent OS from the URL. Do not put a personal access token in the repository URL.
 
