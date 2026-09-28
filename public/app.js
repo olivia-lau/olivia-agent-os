@@ -316,6 +316,20 @@ async function refreshGithubStatus() {
   } catch (error) { $('#githubBackendStatus').textContent = `GitHub needs attention: ${error.message}`; }
 }
 
+$('#verifyGithubAccess').addEventListener('click', async () => {
+  const button = $('#verifyGithubAccess');
+  button.disabled = true;
+  $('#githubAccessStatus').textContent = 'Checking live GitHub access…';
+  try {
+    const result = await api('/api/backend/verify', { method: 'POST' });
+    $('#githubAccessStatus').textContent = `Verified live access to ${result.repoId} at ${new Date(result.remoteVerifiedAt).toLocaleTimeString()}.`;
+    toast(result.message);
+  } catch (error) {
+    $('#githubAccessStatus').textContent = `Could not verify access: ${error.message}`;
+    toast('GitHub access needs attention');
+  } finally { button.disabled = false; }
+});
+
 for (const [id, endpoint] of [['pullGithub', 'pull'], ['publishGithub', 'publish']]) {
   $(`#${id}`).addEventListener('click', async () => {
     const button = $(`#${id}`);

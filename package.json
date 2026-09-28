@@ -1,6 +1,6 @@
 {
   "name": "olivia-agent-os-mvp",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "type": "module",
   "description": "Local-first Agent OS with Obsidian as the source of truth.",

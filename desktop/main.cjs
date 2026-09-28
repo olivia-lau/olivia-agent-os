@@ -119,6 +119,19 @@ ipcMain.handle('setup:choose-vault', async () => {
   const result = await dialog.showOpenDialog(window, { title: 'Choose your Obsidian vault folder', properties: ['openDirectory'] });
   return result.canceled ? null : result.filePaths[0];
 });
+ipcMain.handle('setup:verify-github', async (_event, input) => {
+  try {
+    const moduleUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'github-vault.mjs')).href;
+    const { prepareGithubVault, githubVaultStatus } = await import(moduleUrl);
+    const prepared = await prepareGithubVault({
+      repoUrl: String(input?.repoUrl || ''),
+      existingFolder: String(input?.repoFolder || ''),
+      managedRoot: path.join(app.getPath('userData'), 'github-vaults')
+    });
+    const status = await githubVaultStatus(prepared.repoRoot, prepared.repoId);
+    return { ok: true, repoId: prepared.repoId, branch: status.branch, repoRoot: prepared.repoRoot };
+  } catch (error) { return { ok: false, error: error.message }; }
+});
 ipcMain.handle('setup:save', async (_event, input) => {
   try {
     const settings = await cleanSettings(input);

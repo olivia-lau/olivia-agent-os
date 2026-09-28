@@ -62,7 +62,18 @@ export async function prepareGithubVault({ repoUrl, existingFolder = '', managed
   if (root !== destination) throw new Error('Choose the root folder of the GitHub clone, not a folder inside it.');
   const actualId = githubRepoId(await git(['config', '--get', 'remote.origin.url'], root));
   if (actualId !== repoId) throw new Error('The selected folder is connected to a different GitHub repository. No files were changed.');
+  await verifyGithubVaultAccess(root, repoId);
   return { repoId, repoRoot: root, vaultPath: root };
+}
+
+export async function verifyGithubVaultAccess(repoRoot, repoId) {
+  const status = await githubVaultStatus(repoRoot, repoId);
+  try {
+    await git(['ls-remote', '--exit-code', 'origin', 'HEAD'], repoRoot, 30000);
+  } catch (error) {
+    throw new Error(`Could not verify live access to ${repoId}. ${error.message} Sign in to the GitHub account that can access this repository, then retry. For a private vault, cloning it in GitHub Desktop and choosing that clone is the simplest route.`);
+  }
+  return { ...status, remoteVerifiedAt: new Date().toISOString(), message: `Verified live GitHub access to ${repoId}.` };
 }
 
 export async function githubVaultStatus(repoRoot, repoId) {

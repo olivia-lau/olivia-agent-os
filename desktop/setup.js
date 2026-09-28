@@ -9,7 +9,25 @@ $('choose').addEventListener('click', async () => {
 });
 $('chooseRepo').addEventListener('click', async () => {
   const chosen = await window.agentSetup.chooseVault();
-  if (chosen) $('repoFolder').value = chosen;
+  if (chosen) { $('repoFolder').value = chosen; $('githubVerification').textContent = 'Not verified yet.'; }
+});
+$('repoUrl').addEventListener('input', () => { $('githubVerification').textContent = 'Not verified yet.'; });
+$('verifyGithub').addEventListener('click', async () => {
+  $('verifyGithub').disabled = true;
+  $('error').textContent = '';
+  $('githubVerification').textContent = 'Checking GitHub access…';
+  try {
+    const result = await window.agentSetup.verifyGithub({ repoUrl: $('repoUrl').value, repoFolder: $('repoFolder').value });
+    if (!result.ok) {
+      $('githubVerification').textContent = 'Verification failed.';
+      $('error').textContent = result.error;
+    } else {
+      $('githubVerification').textContent = `Verified access to ${result.repoId} · ${result.branch}. Vault folder: ${result.repoRoot}`;
+    }
+  } catch (error) {
+    $('githubVerification').textContent = 'Verification failed.';
+    $('error').textContent = error.message;
+  } finally { $('verifyGithub').disabled = false; }
 });
 $('setup').addEventListener('submit', async event => {
   event.preventDefault();

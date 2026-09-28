@@ -21,9 +21,11 @@ By default, each prompt uses the selected Obsidian vault as its first knowledge 
 
 ## Use a GitHub repository as the Obsidian backend
 
-Version 0.2.5 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
+Version 0.2.6 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
 
 For a private repository, the reliable route is to sign in to GitHub Desktop on the Mac, clone **your own** vault repository there, then enter its URL and choose that local clone in Agent OS. A public repository, or a private repository already authenticated for Git on the Mac, can also be cloned by Agent OS from the URL. Do not put a personal access token in the repository URL.
+
+In setup, choose **Verify GitHub access** before opening the app. Agent OS confirms both that the chosen clone points to the named repository and that command-line Git can read its live remote. This is a read-only check; it does not upload or pull vault notes. You can repeat it later from **Knowledge → Verify access**. If GitHub Desktop itself can access a private repository but verification still fails, the Mac's command-line Git may need its own credential helper or SSH authentication. Agent OS does not perform GitHub OAuth inside its window or store a GitHub token. The final **Open Agent OS** action repeats the access check, so a failed or stale connection is not saved as linked.
 
 The Mac must also have the `git` command available. Check with `git --version` in Terminal; if it is missing, install Apple's Command Line Tools or another trusted Git distribution before linking the repository.
 

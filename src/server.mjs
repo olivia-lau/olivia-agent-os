@@ -14,7 +14,7 @@ import { saveCorrection } from './corrections.mjs';
 import { beginLogin, connectionView, disconnectProvider, refreshConnections } from './connections.mjs';
 import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity-executor.mjs';
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
-import { githubVaultStatus, pullGithubVault, publishAgentNotes } from './github-vault.mjs';
+import { githubVaultStatus, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from './github-vault.mjs';
 import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
@@ -221,6 +221,11 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/backend') {
       return json(response, 200, GITHUB_REPO ? await githubVaultStatus(GITHUB_ROOT, GITHUB_REPO) : { type: 'local', vaultPath: VAULT_PATH });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/backend/verify') {
+      checkLocalOrigin(request);
+      if (!GITHUB_REPO) throw new Error('This vault is not linked to GitHub.');
+      return json(response, 200, await verifyGithubVaultAccess(GITHUB_ROOT, GITHUB_REPO));
     }
     if (request.method === 'POST' && url.pathname === '/api/backend/pull') {
       checkLocalOrigin(request);

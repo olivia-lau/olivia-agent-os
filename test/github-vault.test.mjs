@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { githubRepoId, githubVaultStatus, prepareGithubVault, pullGithubVault, publishAgentNotes } from '../src/github-vault.mjs';
+import { githubRepoId, githubVaultStatus, prepareGithubVault, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from '../src/github-vault.mjs';
 
 test('accepts GitHub HTTPS and SSH URLs without accepting embedded credentials', () => {
   assert.equal(githubRepoId('https://github.com/Partner/Notes.git'), 'partner/notes');
@@ -15,13 +15,28 @@ test('accepts GitHub HTTPS and SSH URLs without accepting embedded credentials',
 });
 
 test('links only a matching GitHub clone and refuses to pull over local changes', async () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-os-github-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-os-github-test-'));
+  const remote = path.join(sandbox, 'remote.git');
+  const seed = path.join(sandbox, 'seed');
+  const folder = path.join(sandbox, 'vault');
+  const run = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   try {
-    execFileSync('git', ['init', folder], { stdio: 'ignore' });
-    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/partner/notes.git'], { cwd: folder, stdio: 'ignore' });
+    run(['init', '--bare', '--initial-branch=main', remote], sandbox);
+    run(['init', '--initial-branch=main', seed], sandbox);
+    run(['config', 'user.name', 'Agent OS Test'], seed);
+    run(['config', 'user.email', 'agent-os-test@example.invalid'], seed);
+    fs.writeFileSync(path.join(seed, 'start.md'), '# Start\n');
+    run(['add', 'start.md'], seed);
+    run(['commit', '-m', 'Start'], seed);
+    run(['remote', 'add', 'origin', remote], seed);
+    run(['push', '-u', 'origin', 'main'], seed);
+    run(['clone', remote, folder], sandbox);
+    run(['remote', 'set-url', 'origin', 'https://github.com/partner/notes.git'], folder);
+    run(['config', `url.${pathToFileURL(remote).href}.insteadOf`, 'https://github.com/partner/notes.git'], folder);
     const linked = await prepareGithubVault({ repoUrl: 'https://github.com/partner/notes', existingFolder: folder, managedRoot: path.join(folder, 'unused') });
     assert.equal(linked.repoRoot, folder);
     assert.equal(linked.repoId, 'partner/notes');
+    assert.equal((await verifyGithubVaultAccess(folder, 'partner/notes')).repoId, 'partner/notes');
     await assert.rejects(prepareGithubVault({ repoUrl: 'https://github.com/partner/other', existingFolder: folder, managedRoot: path.join(folder, 'unused') }), /different GitHub repository/);
     fs.writeFileSync(path.join(folder, 'note.md'), '# Not published\n');
     const status = await githubVaultStatus(folder, 'partner/notes');
@@ -30,8 +45,11 @@ test('links only a matching GitHub clone and refuses to pull over local changes'
     assert.equal(fs.readFileSync(path.join(folder, 'note.md'), 'utf8'), '# Not published\n');
     execFileSync('git', ['add', 'note.md'], { cwd: folder, stdio: 'ignore' });
     await assert.rejects(publishAgentNotes(folder, 'partner/notes', [path.join(folder, 'note.md')]), /already staged/);
+    fs.renameSync(remote, path.join(sandbox, 'remote-offline.git'));
+    await assert.rejects(verifyGithubVaultAccess(folder, 'partner/notes'), /Could not verify live access/);
+    await assert.rejects(prepareGithubVault({ repoUrl: 'https://github.com/partner/notes', existingFolder: folder, managedRoot: path.join(sandbox, 'unused') }), /Could not verify live access/);
   } finally {
-    fs.rmSync(folder, { recursive: true, force: true });
+    fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });
 
