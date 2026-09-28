@@ -9,6 +9,7 @@ import { runPerplexity } from './perplexity-executor.mjs';
 import { resolveClaudeCommand, resolveCodexCommand } from './codex-command.mjs';
 import { requiresExecutionApproval, routeCommand, shouldRemember, shouldUseKnowledge, tokenFailureKind } from './provider-router.mjs';
 import { createThread, getThread, threadContext, touchThread } from './conversation-store.mjs';
+import { validateAgentChoices } from './agent-choices.mjs';
 
 function bounded(value, max) { return String(value || '').replaceAll('\0', '').trim().slice(0, max); }
 function titleFrom(command) { return bounded(command.split(/\r?\n/)[0], 90) || 'Untitled command'; }
@@ -94,8 +95,7 @@ export class DirectExecutor {
     const workspace = path.resolve(bounded(input.workspace, 1000) || EXECUTION_ROOT);
     if (!fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) throw new Error('The selected workspace folder does not exist.');
     const requestedProvider = bounded(input.provider, 30) || 'auto';
-    const codexModel = bounded(input.codexModel, 100);
-    if (codexModel && !/^[a-zA-Z0-9._-]+$/.test(codexModel)) throw new Error('The Codex model name contains unsupported characters.');
+    const agentChoices = validateAgentChoices(input.agentChoices || { codex: { model: input.codexModel || '' } });
     const simulateHandoff = input.simulateHandoff === true;
     if (simulateHandoff && (process.env.OLIVIA_ENABLE_HANDOFF_SIMULATION !== '1' || requestedProvider !== 'codex')) {
       throw new Error('Codex handoff simulation is not enabled.');
@@ -123,7 +123,7 @@ export class DirectExecutor {
     const context = useKnowledge ? buildContextPacket(this.index, { goal: command, categories, includePrivate: input.includePrivate !== false }) : null;
     const approvalRequired = requiresExecutionApproval(command);
     const run = this.runStore.create({
-      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, codexModel,
+      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, agentChoices,
       threadId: thread.id, referenceThreadId, conversationContext, attachments,
       provider: route.provider, providerReason: route.reason, taskType: route.taskType, providerHistory: [],
       knowledgeMode, memoryMode, outputCategory: bounded(input.outputCategory, 180) || 'Personal Generic',
@@ -218,18 +218,24 @@ export class DirectExecutor {
       };
       let result;
       if (provider === 'codex') {
-        result = await runProcess(resolveCodexCommand(), ['exec', ...(run.codexModel ? ['-m', run.codexModel] : []), '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : []), '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
+        const choice = run.agentChoices?.codex || { model: run.codexModel || '' };
+        result = await runProcess(resolveCodexCommand(), ['exec', ...(choice.model ? ['-m', choice.model] : []), ...(choice.effort ? ['-c', `model_reasoning_effort="${choice.effort}"`] : []), '--skip-git-repo-check', '--approve-for-me', '--color', 'never', '--json', '-C', run.workspace, '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : []), '-o', finalPath, '-'], { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseCodexOutput(result.stdout, finalPath);
       } else if (provider === 'claude') {
         const claudeCommand = process.platform === 'win32' ? process.execPath : resolveClaudeCommand();
-        const claudeArgs = process.platform === 'win32'
-          ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'), '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])]
-          : ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--effort', 'medium', '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])];
+        const choice = run.agentChoices?.claude || {};
+        const claudeArgs = [
+          ...(process.platform === 'win32' ? [path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js')] : []),
+          '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto',
+          ...(choice.model ? ['--model', choice.model] : []), ...(choice.effort ? ['--effort', choice.effort] : []),
+          '--add-dir', artifactDir, ...(attachmentDir ? ['--add-dir', attachmentDir] : []), ...(directVaultAccess ? ['--add-dir', VAULT_PATH] : [])
+        ];
         result = await runProcess(claudeCommand, claudeArgs, { cwd: run.workspace, input: prompt, onOutput });
         result.output = parseClaudeOutput(result.stdout);
       } else {
         const researchPrompt = `Answer this research request using current information. Include sources where available. You cannot edit the local workspace or carry out computer actions; say so if the request requires them.\n\n${handoffPromptText ? `HANDOFF FROM PREVIOUS AGENT (continue its work; verify any claims before relying on them):\n${handoffPromptText}` : `USER REQUEST:\n${run.command}`}${conversationGuidance}${context ? `\n\nRELEVANT PRIVATE CONTEXT (use only if needed):\n${context.packet}` : ''}${correctionText}`;
         result = await runPerplexity(researchPrompt, {
+          ...run.agentChoices?.perplexity,
           onProgress: activity => this.runStore.event(id, 'execution.progress', { provider, ...activity })
         });
       }

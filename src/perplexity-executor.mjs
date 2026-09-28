@@ -10,7 +10,7 @@ export function setSessionPerplexityKey(value) {
 export function clearSessionPerplexityKey() { sessionApiKey = ''; }
 export function hasSessionPerplexityKey() { return Boolean(sessionApiKey); }
 
-export async function runPerplexity(prompt, { onProgress = () => {}, apiKey = sessionApiKey || process.env.PERPLEXITY_API_KEY, timeoutMs = 180000, fetchImpl = fetch } = {}) {
+export async function runPerplexity(prompt, { onProgress = () => {}, apiKey = sessionApiKey || process.env.PERPLEXITY_API_KEY, timeoutMs = 180000, fetchImpl = fetch, preset = 'fast', model = '', effort = '' } = {}) {
   if (!apiKey) return { ok: false, output: '', stdout: '', stderr: 'Perplexity API credential is not configured.' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -21,7 +21,7 @@ export async function runPerplexity(prompt, { onProgress = () => {}, apiKey = se
     const response = await fetchImpl(ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preset: 'fast', input: prompt, stream: true }),
+      body: JSON.stringify({ preset, ...(model ? { model } : {}), ...(effort ? { reasoning: { effort } } : {}), input: prompt, stream: true }),
       signal: controller.signal
     });
     if (!response.ok) {

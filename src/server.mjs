@@ -16,7 +16,7 @@ import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
 import { githubVaultStatus, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from './github-vault.mjs';
 import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
-import { addAttachment, adoptLegacyRun, createThread, listThreads, removeAttachment, saveAttachmentToVault } from './conversation-store.mjs';
+import { addAttachment, adoptLegacyRun, createThread, listThreads, removeAttachment, renameThread, saveAttachmentToVault } from './conversation-store.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
 const GITHUB_ROOT = process.env.OLIVIA_OS_GITHUB_ROOT || '';
@@ -261,6 +261,11 @@ const server = http.createServer(async (request, response) => {
       checkLocalOrigin(request);
       return json(response, 201, { thread: createThread() });
     }
+    if (request.method === 'PATCH' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments.length === 3) {
+      checkLocalOrigin(request);
+      const { title } = await bodyJson(request);
+      return json(response, 200, { thread: renameThread(segments[2], title) });
+    }
     if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'threads' && segments[2] && segments[3] === 'attachments' && segments.length === 4) {
       checkLocalOrigin(request);
       const attachment = await addAttachment(segments[2], url.searchParams.get('path'), request);
@@ -328,7 +333,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/commands') {
-      const run = directExecutor.create({ ...await bodyJson(request), codexModel: getAgentSettings().codexModel });
+      const run = directExecutor.create(await bodyJson(request));
       return json(response, 201, run);
     }
     if (request.method === 'GET' && url.pathname === '/api/runs') {

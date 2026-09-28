@@ -23,3 +23,15 @@ test('streams a Perplexity answer and retains citations', async () => {
   assert.match(result.output, /https:\/\/example.com\/source/);
   assert.ok(progress.length > 0);
 });
+
+test('passes selected model, depth, and effort to Perplexity', async () => {
+  const fetchImpl = async (url, request) => {
+    assert.deepEqual(JSON.parse(request.body), { preset: 'high', model: 'perplexity/sonar', reasoning: { effort: 'low' }, input: 'Check', stream: true });
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"Done"}\n\n'));
+      controller.close();
+    } }), { status: 200 });
+  };
+  const result = await runPerplexity('Check', { apiKey: 'test-only', fetchImpl, preset: 'high', model: 'perplexity/sonar', effort: 'low' });
+  assert.equal(result.ok, true);
+});

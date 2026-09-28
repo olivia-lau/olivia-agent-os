@@ -35,7 +35,7 @@ export function listThreads() {
 
 export function createThread() {
   const now = new Date().toISOString();
-  const thread = { id: crypto.randomUUID(), title: 'New conversation', createdAt: now, updatedAt: now, attachments: [] };
+  const thread = { id: crypto.randomUUID(), title: 'New project', createdAt: now, updatedAt: now, attachments: [] };
   saveThreads([thread, ...readThreads()]);
   return thread;
 }
@@ -53,7 +53,19 @@ export function touchThread(id, title) {
   const thread = threads.find(item => item.id === id);
   if (!thread) throw new Error('Conversation not found.');
   thread.updatedAt = new Date().toISOString();
-  if (thread.title === 'New conversation' && title) thread.title = String(title).slice(0, 90);
+  if (['New conversation', 'New project'].includes(thread.title) && title) thread.title = String(title).slice(0, 90);
+  saveThreads(threads);
+  return thread;
+}
+
+export function renameThread(id, title) {
+  const clean = String(title || '').trim().replace(/\s+/g, ' ');
+  if (!clean || clean.length > 90) throw new Error('Enter a project name of 1–90 characters.');
+  const threads = readThreads();
+  const thread = threads.find(item => item.id === id);
+  if (!thread) throw new Error('Project not found.');
+  thread.title = clean;
+  thread.updatedAt = new Date().toISOString();
   saveThreads(threads);
   return thread;
 }

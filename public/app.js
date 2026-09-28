@@ -22,7 +22,7 @@ function formatDate(value) {
 function failureSummary(error) {
   const text = String(error || '');
   const rejected = text.match(/The ['"]([^'"]+)['"] model is not supported when using Codex with a ChatGPT account/i);
-  if (rejected) return `Codex model ${rejected[1]} is not available to this ChatGPT account. Choose an available model in Codex’s /model menu, enter it under Agent connections, then retry.`;
+  if (rejected) return `Codex model ${rejected[1]} is not available to this ChatGPT account. Choose one available in Codex’s /model menu, enter it beside the Codex prompt, then retry.`;
   if (/OAuth refresh token was rejected|invalid_grant/i.test(text) && !/model is not supported/i.test(text)) return 'An agent connector needs you to sign in again. Open that connector in the native agent app, then retry.';
   return text.trim().split(/\r?\n/).filter(Boolean).at(-1)?.slice(0, 500) || 'The agent could not complete this task.';
 }
@@ -40,6 +40,7 @@ codexModelInput.addEventListener('change', async () => {
   try {
     const result = await api('/api/agent-settings', { method: 'POST', body: JSON.stringify({ codexModel: codexModelInput.value }) });
     codexModelInput.value = result.agentSettings.codexModel;
+    $('[data-agent-model="codex"]').value = result.agentSettings.codexModel;
     toast(codexModelInput.value ? 'Codex model override saved for future Agent OS tasks' : 'Codex will use its default model');
   } catch (error) { toast(error.message); }
 });
@@ -124,6 +125,11 @@ function renderOverview() {
   }
   renderUsage(usage);
   if (document.activeElement !== codexModelInput) codexModelInput.value = state.overview.agentSettings?.codexModel || '';
+  const codexPromptModel = $('[data-agent-model="codex"]');
+  if (!codexPromptModel.dataset.initialized) {
+    codexPromptModel.value = state.overview.agentSettings?.codexModel || '';
+    codexPromptModel.dataset.initialized = 'true';
+  }
   renderConnections(connections);
   $('#categoryList').innerHTML = `<button class="category-button active" data-category="">Everything <span>${stats.notes}</span></button>` + categories.map(category =>
     `<button class="category-button" data-category="${escapeHtml(category.name)}">${escapeHtml(category.name)} <span>${category.noteCount}</span></button>`
@@ -178,19 +184,19 @@ $('#handoffBanner').addEventListener('click', event => {
 function renderSidebarRuns(runs) {
   const threads = state.overview?.threads || [];
   const legacy = runs.filter(run => !run.threadId).slice(0, 6);
-  $('#sidebarRuns').innerHTML = threads.slice(0, 30).map(thread => `<button class="sidebar-run ${thread.id === state.threadId ? 'active' : ''}" data-sidebar-thread="${escapeHtml(thread.id)}" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</button>`).join('') + legacy.map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No conversations yet</span>';
+  $('#sidebarRuns').innerHTML = threads.slice(0, 30).map(thread => `<button class="sidebar-run ${thread.id === state.threadId ? 'active' : ''}" data-sidebar-thread="${escapeHtml(thread.id)}" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</button>`).join('') + legacy.map(run => `<button class="sidebar-run" data-sidebar-run="${escapeHtml(run.id)}" title="${escapeHtml(run.title)}">${escapeHtml(run.title)}</button>`).join('') || '<span class="muted">No projects yet</span>';
 }
 
 function renderConversation() {
   const threads = state.overview?.threads || [];
   const current = threads.find(item => item.id === state.threadId);
-  $('#currentConversation').textContent = current ? `${current.title} · continuing` : 'New topic · no previous chat context';
+  $('#currentConversation').textContent = current ? current.title : 'No project selected';
   const reference = $('#referenceConversation');
   const value = reference.value;
-  reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && item.title !== 'New conversation').map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`).join('');
+  reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && !['New conversation', 'New project'].includes(item.title)).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`).join('');
   reference.value = [...reference.options].some(item => item.value === value) ? value : '';
   const prior = state.overview?.runs?.filter(run => run.threadId === state.threadId && run.finalOutput).length || 0;
-  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this conversation` : 'No previous turns', reference.value ? 'selected reference conversation (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
+  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this project` : 'No previous turns', reference.value ? 'selected reference project (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
   $('#contextPreviewText').textContent = parts.filter(Boolean).join(' · ') + '. Older turns are omitted to keep the request focused.';
   $('#attachmentList').innerHTML = (current?.attachments || []).map(item => {
     const selected = state.selectedAttachments.some(value => value.id === item.id);
@@ -490,6 +496,39 @@ $('#attachmentList').addEventListener('click', async event => {
 $('#referenceConversation').addEventListener('change', renderConversation);
 $('#newTopic').addEventListener('click', () => $('.new-task').click());
 
+$('#renameProject').addEventListener('click', async () => {
+  try {
+    await ensureConversation();
+    $('#projectNameInput').value = state.overview.threads.find(item => item.id === state.threadId)?.title || '';
+    $('#renameProjectForm').hidden = false;
+    $('#currentConversation').hidden = true;
+    $('#projectNameInput').focus();
+    $('#projectNameInput').select();
+  } catch (error) { toast(error.message); }
+});
+function closeProjectRename() { $('#renameProjectForm').hidden = true; $('#currentConversation').hidden = false; }
+$('#cancelRenameProject').addEventListener('click', closeProjectRename);
+$('#projectNameInput').addEventListener('keydown', event => { if (event.key === 'Escape') closeProjectRename(); });
+$('#renameProjectForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    const { thread } = await api(`/api/threads/${encodeURIComponent(state.threadId)}`, { method: 'PATCH', body: JSON.stringify({ title: $('#projectNameInput').value }) });
+    state.overview.threads = state.overview.threads.map(item => item.id === thread.id ? thread : item);
+    closeProjectRename();
+    renderConversation();
+    renderSidebarRuns(state.overview.runs);
+    toast('Project renamed');
+  } catch (error) { toast(error.message); }
+});
+
+function agentChoices() {
+  return Object.fromEntries(['codex', 'claude', 'perplexity'].map(provider => [provider, {
+    model: $(`[data-agent-model="${provider}"]`).value.trim(),
+    effort: $(`[data-agent-effort="${provider}"]`).value,
+    ...(provider === 'perplexity' ? { preset: $('[data-agent-preset="perplexity"]').value } : {})
+  }]));
+}
+
 $$('.agent-form').forEach(form => {
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -498,7 +537,7 @@ $$('.agent-form').forEach(form => {
     if (!command) return toast('Enter a prompt first');
     try {
       const threadId = await ensureConversation();
-      await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), ...commonCommandOptions() }) });
+      await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), agentChoices: agentChoices(), ...commonCommandOptions() }) });
       input.value = '';
       state.selectedAttachments = [];
       await reloadOverview();
@@ -657,10 +696,12 @@ $$('.tab').forEach(tab => tab.addEventListener('click', () => {
   $(`#${tab.dataset.view}View`).classList.add('active');
   $('#pageTitle').textContent = { mission: 'Tasks', search: 'Knowledge', review: 'Review', activity: 'Activity' }[tab.dataset.view] || 'Olivia OS';
 }));
-$('.new-task').addEventListener('click', () => {
+$('.new-task').addEventListener('click', async () => {
   state.threadId = 'new';
   state.selectedAttachments = [];
   $('#referenceConversation').value = '';
+  closeProjectRename();
+  try { await ensureConversation(); } catch (error) { toast(error.message); return; }
   renderConversation();
   renderRuns([]);
   renderSidebarRuns(state.overview?.runs || []);

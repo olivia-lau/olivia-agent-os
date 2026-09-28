@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-os-conversations-'));
 process.env.OLIVIA_OS_DATA_PATH = path.join(root, 'data');
 process.env.OLIVIA_VAULT_PATH = path.join(root, 'vault');
-const { addAttachment, createThread, getThread, listThreads, removeAttachment, saveAttachmentToVault, threadContext, touchThread } = await import('../src/conversation-store.mjs');
+const { addAttachment, createThread, getThread, listThreads, removeAttachment, renameThread, saveAttachmentToVault, threadContext, touchThread } = await import('../src/conversation-store.mjs');
 const { RunStore } = await import('../src/run-store.mjs');
 const { DirectExecutor } = await import('../src/direct-executor.mjs');
 
@@ -25,6 +25,15 @@ test('conversations carry recent turns and explicit references without crossing 
   assert.doesNotMatch(threadContext(runs, first.id), /Unrelated result/);
   assert.match(threadContext(runs, first.id, second.id), /Unrelated result/);
   assert.equal(listThreads().length, 2);
+});
+
+test('project names persist and are not replaced by a later prompt', () => {
+  const thread = createThread();
+  assert.equal(thread.title, 'New project');
+  renameThread(thread.id, 'Endura Vault');
+  touchThread(thread.id, 'Unrelated prompt title');
+  assert.equal(getThread(thread.id).title, 'Endura Vault');
+  assert.throws(() => renameThread(thread.id, '  '), /project name/);
 });
 
 test('attachments stay outside the vault until explicitly saved and reject unsafe paths', async () => {
