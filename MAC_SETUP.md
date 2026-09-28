@@ -6,7 +6,7 @@ This source bundle is the shareable app code only. It does not include Olivia's 
 2. Unzip this bundle to a normal folder, open Terminal there, and run `npm ci`.
 3. Run `npm run desktop` to launch and test the app.
 4. On first launch, enter a workspace name and choose **your own Obsidian vault**. Choose **Local Obsidian vault** for a folder on the Mac, or **GitHub repository** for a GitHub-backed vault. No vault is copied from Olivia.
-5. Install and sign in to the Codex and/or Claude Code CLIs on that Mac if you want those agents to execute tasks. In **Agent connections**, refresh their status. "Signed in" means a stored CLI credential exists, not that a prompt has been tested. The new **Sign out** controls sign out the machine-wide CLI too; use them only if you need to change accounts. Enter your own Perplexity API key if you use Perplexity.
+5. Install and sign in to the Codex and/or Claude Code CLIs on that Mac if you want those agents to execute tasks. If Agent connections says a CLI is missing, choose its **Open install guide** link, complete the official installation in Terminal, then return and select **Refresh status**. The guide link does not automatically install software. "Signed in" means a stored CLI credential exists, not that a prompt has been tested. The **Sign out** controls sign out the machine-wide CLI too; use them only if you need to change accounts. Enter your own Perplexity API key if you use Perplexity.
 6. To build a macOS app ZIP on that Mac, run `npm run build:mac`. The output appears in `dist/`.
 
 ## Mac acceptance check
@@ -21,7 +21,7 @@ By default, each prompt uses the selected Obsidian vault as its first knowledge 
 
 ## Use a GitHub repository as the Obsidian backend
 
-Version 0.2.6 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
+Version 0.2.7 lets a person enter a GitHub repository URL during first-run setup or through **Agent OS → Change vault or GitHub repo…**. The repository root must contain the Obsidian Markdown notes. Agent OS uses a local clone for fast, offline reads and writes; the GitHub repository is its remote copy.
 
 For a private repository, the reliable route is to sign in to GitHub Desktop on the Mac, clone **your own** vault repository there, then enter its URL and choose that local clone in Agent OS. A public repository, or a private repository already authenticated for Git on the Mac, can also be cloned by Agent OS from the URL. Do not put a personal access token in the repository URL.
 

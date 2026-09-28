@@ -68,13 +68,16 @@ function renderConnections(connections = {}) {
     const lastRun = state.overview?.runs?.find(run => (run.providerHistory || []).some(attempt => attempt.provider === id));
     const lastAttempt = lastRun?.providerHistory?.filter(attempt => attempt.provider === id).at(-1);
     const executionState = lastAttempt ? lastAttempt.success ? 'last task succeeded' : 'last task failed' : 'execution unverified';
-    status.textContent = provider.ready ? `Signed in · ${executionState}` : provider.loginState === 'opening' ? 'Opening sign-in…' : provider.loginState === 'prompt-opened' ? 'Finish in sign-in window' : provider.loginState === 'failed' ? 'Sign-in needs attention' : provider.installed ? 'Not signed in' : 'CLI not found';
+    status.textContent = provider.ready ? `Signed in · ${executionState}` : provider.loginState === 'opening' ? 'Opening sign-in…' : provider.loginState === 'prompt-opened' ? 'Finish in sign-in window' : provider.loginState === 'failed' ? 'Sign-in needs attention' : provider.installed ? 'Not signed in' : 'CLI not found · install guide below';
     status.classList.toggle('connected', Boolean(provider.ready));
     const login = card.querySelector('[data-login]');
     if (login) {
-      login.textContent = provider.ready ? 'Already connected' : !provider.installed ? 'Install CLI first' : provider.loginState === 'opening' ? 'Opening…' : provider.loginState === 'prompt-opened' ? 'Open sign-in again' : `Sign in to ${id === 'codex' ? 'Codex' : 'Claude'}`;
-      login.disabled = provider.ready || !provider.installed || provider.loginState === 'opening';
+      login.textContent = provider.ready ? 'Already connected' : provider.loginState === 'opening' ? 'Opening…' : provider.loginState === 'prompt-opened' ? 'Open sign-in again' : `Sign in to ${id === 'codex' ? 'Codex' : 'Claude'}`;
+      login.hidden = !provider.installed;
+      login.disabled = provider.ready || provider.loginState === 'opening';
     }
+    const install = card.querySelector('[data-install]');
+    if (install) install.hidden = Boolean(provider.installed);
     const logout = card.querySelector('[data-logout]');
     if (logout) logout.hidden = !provider.ready;
   }
@@ -107,7 +110,7 @@ function renderOverview() {
     const form = document.querySelector(`.agent-form[data-provider="${provider.id}"]`);
     if (!form) continue;
     form.classList.toggle('unavailable', !provider.ready);
-    $(`#${provider.id}Availability`).textContent = provider.ready ? 'Ready' : provider.id === 'claude' ? 'Sign in required' : 'API key required';
+    $(`#${provider.id}Availability`).textContent = provider.ready ? 'Ready' : provider.id === 'perplexity' ? 'API key required' : provider.installed ? 'Sign in required' : 'Install CLI in Agent connections';
     form.querySelector('button[type="submit"]').disabled = !provider.ready;
   }
   renderUsage(usage);
@@ -370,6 +373,11 @@ $$('.agent-form').forEach(form => {
 });
 
 $('#connectionsPanel').addEventListener('click', async event => {
+  const install = event.target.closest('[data-install]');
+  if (install) {
+    $('#connectionMessage').textContent = `Follow the ${install.dataset.install === 'codex' ? 'Codex' : 'Claude Code'} Mac install guide, then return here and choose Refresh status.`;
+    return;
+  }
   const logout = event.target.closest('[data-logout]');
   if (logout) {
     const provider = logout.dataset.logout;
