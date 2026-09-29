@@ -71,6 +71,15 @@ codexModelPicker.addEventListener('change', () => {
   syncCodexModelPicker();
 });
 codexPromptModel.addEventListener('input', syncCodexModelPicker);
+const claudeModelPicker = $('#claudeModelPicker');
+const claudeModelInput = $('[data-agent-model="claude"]');
+const claudeCustomModelLabel = $('#claudeCustomModelLabel');
+claudeModelPicker.addEventListener('change', () => {
+  const custom = claudeModelPicker.value === 'other';
+  claudeCustomModelLabel.hidden = !custom;
+  claudeModelInput.value = custom ? '' : claudeModelPicker.value;
+  if (custom) claudeModelInput.focus();
+});
 codexModelInput.addEventListener('change', async () => {
   codexModelInput.value = codexModelInput.value.trim();
   try {
