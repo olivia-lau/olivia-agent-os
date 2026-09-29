@@ -16,6 +16,7 @@ import { clearSessionPerplexityKey, setSessionPerplexityKey } from './perplexity
 import { forgetPerplexityKey, loadPerplexityKey, savePerplexityKey } from './perplexity-key-store.mjs';
 import { githubVaultStatus, pullGithubVault, publishAgentNotes, verifyGithubVaultAccess } from './github-vault.mjs';
 import { getAgentSettings, saveAgentSettings } from './agent-settings.mjs';
+import { getCodexModels } from './codex-models.mjs';
 import { addAttachment, adoptLegacyRun, createProject, createThread, listProjects, listThreads, removeAttachment, renameProject, renameThread, saveAttachmentToVault } from './conversation-store.mjs';
 
 const GITHUB_REPO = process.env.OLIVIA_OS_GITHUB_REPO || '';
@@ -313,6 +314,9 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/agent-settings') {
       checkLocalOrigin(request);
       return json(response, 200, { agentSettings: saveAgentSettings(await bodyJson(request)) });
+    }
+    if (request.method === 'GET' && url.pathname === '/api/codex/models') {
+      return json(response, 200, await getCodexModels());
     }
     if (request.method === 'POST' && url.pathname === '/api/connections/perplexity') {
       checkLocalOrigin(request);

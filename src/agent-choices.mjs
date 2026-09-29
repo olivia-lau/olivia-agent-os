@@ -1,5 +1,5 @@
 const efforts = {
-  codex: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   claude: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
   perplexity: ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 };

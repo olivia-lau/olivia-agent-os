@@ -12,6 +12,6 @@ test('agent settings stay separate and use each provider default when unset', ()
   assert.equal(choices.claude.model, 'sonnet');
   assert.equal(choices.perplexity.preset, 'high');
   assert.equal(validateAgentChoices().perplexity.preset, 'fast');
-  assert.throws(() => validateAgentChoices({ codex: { effort: 'ultra' } }), /effort/);
+  assert.throws(() => validateAgentChoices({ codex: { effort: 'extreme' } }), /effort/);
   assert.throws(() => validateAgentChoices({ claude: { model: 'bad;command' } }), /model/);
 });

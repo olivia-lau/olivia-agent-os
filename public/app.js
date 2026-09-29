@@ -23,6 +23,8 @@ function formatDate(value) {
 
 function failureSummary(error) {
   const text = String(error || '');
+  const needsUpgrade = text.match(/The ['"]([^'"]+)['"] model requires a newer version of Codex/i);
+  if (needsUpgrade) return `${needsUpgrade[1]} requires a newer Codex CLI on this computer. Update the CLI, refresh Agent connections, or choose another model.`;
   const rejected = text.match(/The ['"]([^'"]+)['"] model is not supported when using Codex with a ChatGPT account/i);
   if (rejected) return `Codex model ${rejected[1]} is not available to this ChatGPT account. Choose one available in Codex’s /model menu, enter it beside the Codex prompt, then retry.`;
   if (/OAuth refresh token was rejected|invalid_grant/i.test(text) && !/model is not supported/i.test(text)) return 'An agent connector needs you to sign in again. Open that connector in the native agent app, then retry.';
@@ -37,12 +39,45 @@ function toast(message) {
 }
 
 const codexModelInput = $('#codexModel');
+const codexPromptModel = $('[data-agent-model="codex"]');
+const codexModelPicker = $('#codexModelPicker');
+let codexModels = [];
+
+function syncCodexModelPicker() {
+  const model = codexPromptModel.value.trim();
+  codexModelPicker.value = codexModels.some(item => item.id === model) ? model : '';
+  const selected = codexModels.find(item => item.id === model);
+  const effort = $('[data-agent-effort="codex"]');
+  for (const option of effort.options) option.disabled = Boolean(selected && option.value && selected.efforts.length && !selected.efforts.includes(option.value));
+  if (effort.selectedOptions[0]?.disabled) effort.value = '';
+}
+
+async function refreshCodexModels() {
+  const status = $('#codexModelStatus');
+  status.textContent = 'Loading models from this computer’s Codex CLI…';
+  try {
+    const result = await api('/api/codex/models');
+    codexModels = result.models || [];
+    codexModelPicker.replaceChildren(new Option('CLI default', ''), ...codexModels.map(item => new Option(`${item.name}${item.isDefault ? ' · default' : ''}`, item.id)));
+    syncCodexModelPicker();
+    status.textContent = codexModels.length
+      ? 'Models shown are from this computer’s Codex CLI. Choose one, or enter a model ID manually.'
+      : `Model list unavailable: ${result.error || 'No models returned'}. Update Codex CLI or enter a model ID manually.`;
+  } catch (error) { status.textContent = `Model list unavailable: ${error.message}. Enter a model ID manually.`; }
+}
+
+codexModelPicker.addEventListener('change', () => {
+  codexPromptModel.value = codexModelPicker.value;
+  syncCodexModelPicker();
+});
+codexPromptModel.addEventListener('input', syncCodexModelPicker);
 codexModelInput.addEventListener('change', async () => {
   codexModelInput.value = codexModelInput.value.trim();
   try {
     const result = await api('/api/agent-settings', { method: 'POST', body: JSON.stringify({ codexModel: codexModelInput.value }) });
     codexModelInput.value = result.agentSettings.codexModel;
     $('[data-agent-model="codex"]').value = result.agentSettings.codexModel;
+    syncCodexModelPicker();
     toast(codexModelInput.value ? 'Codex model override saved for future Agent OS tasks' : 'Codex will use its default model');
   } catch (error) { toast(error.message); }
 });
@@ -131,6 +166,7 @@ function renderOverview() {
   if (!codexPromptModel.dataset.initialized) {
     codexPromptModel.value = state.overview.agentSettings?.codexModel || '';
     codexPromptModel.dataset.initialized = 'true';
+    syncCodexModelPicker();
   }
   renderConnections(connections);
   $('#categoryList').innerHTML = `<button class="category-button active" data-category="">Everything <span>${stats.notes}</span></button>` + categories.map(category =>
@@ -712,6 +748,7 @@ $('#refreshConnections').addEventListener('click', async () => {
   try {
     await api('/api/connections/refresh', { method: 'POST' });
     await reloadOverview();
+    await refreshCodexModels();
     toast('Connection status refreshed');
   } catch (error) { toast(error.message); }
   finally { button.disabled = false; }
@@ -961,6 +998,7 @@ try {
   $('#health').classList.add('ready');
   $('#health').lastChild.textContent = ' Vault connected';
   await reloadOverview();
+  await refreshCodexModels();
 } catch (error) {
   $('#health').lastChild.textContent = ' Connection failed';
   toast(error.message);
