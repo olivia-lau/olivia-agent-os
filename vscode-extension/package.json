@@ -6,11 +6,26 @@
   "publisher": "olivia-agent-os",
   "engines": { "vscode": "^1.90.0" },
   "categories": ["Other"],
-  "activationEvents": ["onCommand:agentOS.openWorkbench"],
+  "activationEvents": ["onCommand:agentOS.openWorkbench", "onChatParticipant:olivia-agent-switch.agentos"],
   "main": "./extension.js",
   "contributes": {
     "commands": [
       { "command": "agentOS.openWorkbench", "title": "Olivia's Agent Switch: Open Workbench" }
+    ],
+    "chatParticipants": [
+      {
+        "id": "olivia-agent-switch.agentos",
+        "name": "agentos",
+        "fullName": "Olivia's Agent Switch",
+        "description": "Run this task through your locally signed-in Codex or Claude Code CLI account.",
+        "isSticky": true,
+        "commands": [
+          { "name": "auto", "description": "Let Agent OS choose an agent and use its configured backup." },
+          { "name": "codex", "description": "Run this task with Codex, with Agent OS backup routing." },
+          { "name": "claude", "description": "Run this task with Claude Code, with Agent OS backup routing." },
+          { "name": "new", "description": "Start a new Agent OS project and conversation." }
+        ]
+      }
     ],
     "menus": {
       "commandPalette": [
@@ -37,6 +52,13 @@
           "default": true,
           "scope": "machine",
           "description": "Start the local dashboard if it is not already running."
+        },
+        "agentOS.backupProvider": {
+          "type": "string",
+          "enum": ["auto", "none", "codex", "claude"],
+          "default": "auto",
+          "scope": "machine",
+          "description": "Preferred backup agent for @agentos. Automatic routing avoids handing a task back to its current provider."
         }
       }
     }

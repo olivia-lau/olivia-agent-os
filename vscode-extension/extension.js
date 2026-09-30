@@ -2,6 +2,7 @@ const vscode = require('vscode');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { PARTICIPANT_ID, requestedProvider, sessionFromHistory, projectTitle, isTerminal, progressLabel } = require('./agentos-chat.cjs');
 
 const log = vscode.window.createOutputChannel("Olivia's Agent Switch Workbench");
 let serverProcess;
@@ -124,9 +125,138 @@ async function openWorkbench(context) {
   }
 }
 
+async function apiRequest(url, route, options = {}) {
+  const response = await fetch(new URL(route, url), {
+    ...options,
+    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(value.error || value.message || `Agent OS request failed (${response.status}).`);
+  return value;
+}
+
+async function waitForRun(url, runId, stream, token) {
+  const seen = new Set();
+  const deadline = Date.now() + 90 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (token.isCancellationRequested) return { cancelled: true };
+    const { run, events = [] } = await apiRequest(url, `/api/runs/${encodeURIComponent(runId)}`);
+    for (const event of events) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+      const label = progressLabel(event);
+      if (label) stream.progress(label);
+    }
+    if (!run) throw new Error('Agent OS no longer has this run in its local history.');
+    if (isTerminal(run.status)) return { run };
+    if (run.status === 'awaiting_execution_approval') {
+      const choice = await vscode.window.showWarningMessage(
+        'Agent OS is asking to run a command that needs approval.',
+        { modal: true, detail: run.command || 'Review this action in Agent OS before continuing.' },
+        'Approve and run', 'Reject'
+      );
+      if (choice === 'Approve and run') {
+        await apiRequest(url, `/api/runs/${encodeURIComponent(runId)}/approve-execution`, { method: 'POST' });
+        stream.progress('Approval recorded; waiting for the agent.');
+      } else {
+        await apiRequest(url, `/api/runs/${encodeURIComponent(runId)}/reject-execution`, { method: 'POST' });
+      }
+    } else if (run.status === 'awaiting_plan_approval' || run.status === 'awaiting_output_approval') {
+      return { run };
+    }
+    await new Promise(resolve => setTimeout(resolve, 850));
+  }
+  return { timedOut: true };
+}
+
+async function handleAgentOsChat(request, chatContext, stream, token) {
+  try {
+    const root = configuredRoot();
+    const url = dashboardUrl();
+    await startDashboard(root, url);
+    const { providers = {}, executionRoot, agentSettings = {} } = await apiRequest(url, '/api/overview');
+    const configuredBackup = vscode.workspace.getConfiguration('agentOS').get('backupProvider', 'auto');
+    const command = String(request.command || '').toLowerCase();
+    let session = command === 'new' ? null : sessionFromHistory(chatContext.history);
+    const provider = requestedProvider(command);
+    const userPrompt = String(request.prompt || '').trim();
+
+    if (command === 'new' || !session) {
+      stream.progress(command === 'new' ? 'Starting a new Agent OS project…' : 'Creating an Agent OS project for this chat…');
+      const created = await apiRequest(url, '/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ title: projectTitle(request.prompt) })
+      });
+      session = { projectId: created.project.id, threadId: created.thread.id };
+      if (command === 'new' && !userPrompt) {
+        stream.markdown(`Started a new Agent OS project: **${created.project.title}**. Send your task in the next message, or include it after `/new`.`);
+        return { metadata: { agentOsProjectId: session.projectId, agentOsThreadId: session.threadId } };
+      }
+    }
+
+    if (!userPrompt) {
+      stream.markdown('Add a task after `@agentos` (optionally choose `/codex`, `/claude`, or `/auto`).');
+      return { metadata: { agentOsProjectId: session.projectId, agentOsThreadId: session.threadId } };
+    }
+    if (provider !== 'auto' && !providers[provider]?.ready) {
+      throw new Error(`${provider === 'claude' ? 'Claude Code' : 'Codex'} is not signed in or ready on this computer. Connect it in Agent OS, then retry.`);
+    }
+
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || executionRoot;
+    if (!workspace) throw new Error('Open a project folder in VS Code or set up a workspace in Agent OS first.');
+    stream.progress(`Sending this task to Agent OS${provider === 'auto' ? '' : ` for ${provider === 'claude' ? 'Claude Code' : 'Codex'}`}…`);
+    const run = await apiRequest(url, '/api/commands', {
+      method: 'POST',
+      body: JSON.stringify({
+        command: userPrompt,
+        provider,
+        backupProvider: ['codex', 'claude'].includes(provider) && configuredBackup === provider ? 'auto' : configuredBackup,
+        projectId: session.projectId,
+        threadId: session.threadId,
+        workspace,
+        agentChoices: { codex: { model: agentSettings.codexModel || '' } },
+        knowledgeMode: 'auto',
+        memoryMode: 'always',
+        includePrivate: true,
+        outputCategory: 'Personal Generic'
+      })
+    });
+
+    const outcome = await waitForRun(url, run.id, stream, token);
+    const metadata = { agentOsProjectId: session.projectId, agentOsThreadId: session.threadId, agentOsRunId: run.id };
+    if (outcome.cancelled) {
+      stream.markdown(`Stopped waiting in VS Code. The Agent OS run **${run.id}** may still be working; check its dashboard for the eventual result.`);
+      return { metadata };
+    }
+    if (outcome.timedOut) {
+      stream.markdown(`Agent OS is still running after 90 minutes. Check the local dashboard for progress and result (run ${run.id}).`);
+      return { metadata };
+    }
+
+    const finished = outcome.run;
+    if (finished.finalOutput) stream.markdown(finished.finalOutput);
+    else if (finished.error) stream.markdown(`**Agent OS ${finished.status}.**\n\n${finished.error}`);
+    else stream.markdown(`Agent OS finished with status **${finished.status}**. Open the workbench for details.`);
+    if (finished.handoffs?.length) {
+      const handoffs = finished.handoffs.map(item => `${item.from || 'Agent'} → ${item.to || 'backup agent'}`).join(', ');
+      stream.markdown(`\n\n_Agent handoff: ${handoffs}._`);
+    }
+    return { metadata };
+  } catch (error) {
+    stream.markdown(`**Agent OS could not run this request.** ${error.message}\n\nOpen **Olivia's Agent Switch: Open Workbench** to check provider sign-in and runtime status.`);
+    return {};
+  }
+}
+
 function activate(context) {
   context.subscriptions.push(log);
   context.subscriptions.push(vscode.commands.registerCommand('agentOS.openWorkbench', () => openWorkbench(context)));
+  if (vscode.chat?.createChatParticipant) {
+    const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handleAgentOsChat);
+    context.subscriptions.push(participant);
+  } else {
+    log.appendLine('This VS Code version does not expose the Chat Participant API. Update VS Code to use @agentos.');
+  }
 }
 
 function deactivate() {
