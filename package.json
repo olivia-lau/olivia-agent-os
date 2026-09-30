@@ -1,9 +1,9 @@
 {
-  "name": "olivia-agent-os-mvp",
+  "name": "olivias-agent-switch",
   "version": "0.2.18",
   "private": true,
   "type": "module",
-  "description": "Local-first Agent OS with Obsidian as the source of truth.",
+  "description": "Olivia's local-first agent switchboard with Obsidian as the source of truth.",
   "scripts": {
     "start": "node src/server.mjs",
     "codex:live": "node --watch scripts/start-codex-dashboard.mjs",
@@ -25,8 +25,8 @@
   },
   "main": "desktop/main.cjs",
   "build": {
-    "appId": "local.agentos.desktop",
-    "productName": "Agent OS",
+    "appId": "com.olivia.agent-switch",
+    "productName": "Olivia's Agent Switch",
     "directories": {
       "output": "dist"
     },
@@ -34,6 +34,9 @@
       "desktop/**/*",
       "src/**/*",
       "public/**/*",
+      "!desktop/desktop/**",
+      "!src/src/**",
+      "!public/public/**",
       "package.json",
       "!**/*.test.mjs",
       "!**/data/**",

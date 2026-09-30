@@ -26,7 +26,7 @@ serveStdio(() => {
   const agentOS = new AgentOSOrchestrator({ index, runStore });
   const providers = detectProviders();
   const directExecutor = new DirectExecutor({ index, runStore, providers });
-  const server = new McpServer({ name: 'olivia-agent-os', version: '0.1.0' });
+  const server = new McpServer({ name: 'olivias-agent-switch', version: '0.1.0' });
 
   server.registerTool('search_vault', {
     description: 'Search Olivia’s Obsidian vault. Returns note titles, locations, metadata, and excerpts. Use this before reading full notes.',
@@ -44,7 +44,7 @@ serveStdio(() => {
   }, async ({ path }) => result(compact(index.read(path))));
 
   server.registerTool('read_os_build_reference', {
-    description: 'Read the current Olivia Agent OS build reference in Obsidian: architecture, provider readiness, usage limits, safety, paths, and known gaps. Read this before modifying the OS.',
+    description: "Read Olivia's Agent Switch build reference in Obsidian: architecture, provider readiness, usage limits, safety, paths, and known gaps. Read this before modifying the app.",
     inputSchema: z.object({})
   }, async () => result(compact(index.read('00 System/Olivia Agent OS - Build Reference.md'))));
 

@@ -19,4 +19,4 @@ export const AGENT_MODE = process.env.OLIVIA_AGENT_MODE || 'live';
 export const AGENT_TIMEOUT_MS = Number(process.env.OLIVIA_AGENT_TIMEOUT_MS || 900000);
 export const EXECUTION_ROOT = path.resolve(process.env.OLIVIA_EXECUTION_ROOT || path.join(APP_ROOT, '..', '..', '..'));
 export const MAX_HANDOFFS = Number(process.env.OLIVIA_MAX_HANDOFFS || 2);
-export const DISPLAY_NAME = process.env.OLIVIA_OS_DISPLAY_NAME || 'Olivia OS';
+export const DISPLAY_NAME = process.env.OLIVIA_OS_DISPLAY_NAME || "Olivia's Agent Switch";

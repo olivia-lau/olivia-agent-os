@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_ROOT, DATA_PATH, DISPLAY_NAME, EXECUTION_ROOT, HOST, PORT, RUN_ARTIFACTS_PATH, VAULT_PATH } from './config.mjs';
 import { VaultIndex } from './vault.mjs';
+import { buildContextPacket } from './context-broker.mjs';
 import { approveProposal, createProposal, listActivity, listProposals, rejectProposal } from './store.mjs';
 import { RunStore } from './run-store.mjs';
 import { AgentOSOrchestrator } from './orchestrator.mjs';
@@ -33,6 +34,7 @@ const publicRoot = path.join(APP_ROOT, 'public');
 const index = new VaultIndex(VAULT_PATH);
 index.refresh();
 const runStore = new RunStore();
+runStore.interruptUnfinished();
 for (const run of runStore.list()) {
   if (run.mode !== 'direct' || run.threadId) continue;
   adoptLegacyRun(run);
@@ -405,6 +407,13 @@ const server = http.createServer(async (request, response) => {
         limit: url.searchParams.get('limit') || 50
       }).map(noteSummary);
       return json(response, 200, { results, total: results.length });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/context-preview') {
+      checkLocalOrigin(request);
+      const input = await bodyJson(request);
+      if (input.knowledgeMode === 'off') return json(response, 200, { sources: [], characters: 0 });
+      const context = buildContextPacket(index, { goal: String(input.command || '').slice(0, 20000), categories: Array.isArray(input.categories) ? input.categories : [], includePrivate: input.includePrivate !== false });
+      return json(response, 200, { sources: context.sources, characters: context.characters });
     }
     if (request.method === 'GET' && url.pathname === '/api/note') {
       const note = index.read(url.searchParams.get('path') || '');

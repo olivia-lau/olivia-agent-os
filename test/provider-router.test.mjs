@@ -28,4 +28,5 @@ test('detects approval, knowledge, memory, and handoff conditions', () => {
   assert.equal(shouldRemember('Fix this file', 'code', 'auto'), true);
   assert.equal(tokenFailureKind('maximum context window exceeded'), 'context_limit');
   assert.equal(tokenFailureKind('weekly usage limit reached'), 'provider_limit');
+  assert.equal(tokenFailureKind("You've hit your limit for this session"), 'provider_limit');
 });

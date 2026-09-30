@@ -10,7 +10,7 @@ process.env.OLIVIA_OS_DATA_PATH = path.join(root, 'data');
 process.env.OLIVIA_VAULT_PATH = path.join(root, 'vault');
 const { addAttachment, createProject, createThread, getProject, getThread, listProjects, listThreads, removeAttachment, renameProject, renameThread, saveAttachmentToVault, threadContext, touchThread } = await import('../src/conversation-store.mjs');
 const { RunStore } = await import('../src/run-store.mjs');
-const { DirectExecutor } = await import('../src/direct-executor.mjs');
+const { DirectExecutor, isInteractiveApprovalBlock, resolveOutputPath, saveOutputFile } = await import('../src/direct-executor.mjs');
 
 test('conversations carry recent turns and explicit references without crossing topics', () => {
   const first = createThread();
@@ -96,6 +96,42 @@ test('direct runs keep their conversation, chosen files, and bounded prior conte
   const fresh = executor.create({ command: 'delete nothing, fresh', provider: 'codex', workspace: root });
   assert.equal(fresh.conversationContext, '');
   assert.notEqual(fresh.threadId, thread.id);
+});
+
+test('several prompts can be pending in one conversation and Claude can hand off to Codex', () => {
+  const thread = createThread();
+  const runStore = new RunStore({ runsPath: path.join(root, 'parallel-runs.json'), eventsPath: path.join(root, 'parallel-events.jsonl'), performancePath: path.join(root, 'parallel-performance.json') });
+  const providers = { codex: { id: 'codex', name: 'Codex', ready: true }, claude: { id: 'claude', name: 'Claude Code', ready: true } };
+  const executor = new DirectExecutor({ index: { search: () => [], read: () => null }, runStore, providers });
+  const first = executor.create({ command: 'delete nothing, first task', provider: 'claude', backupProvider: 'codex', threadId: thread.id, workspace: root });
+  const second = executor.create({ command: 'delete nothing, second task', provider: 'claude', backupProvider: 'codex', threadId: thread.id, workspace: root });
+  assert.notEqual(first.id, second.id);
+  assert.equal(first.status, 'awaiting_execution_approval');
+  assert.equal(second.status, 'awaiting_execution_approval');
+  assert.equal(executor.nextProvider(first, 'claude', 'provider_limit').provider, 'codex');
+  assert.equal(executor.nextProvider(first, 'codex', 'provider_limit'), null);
+  assert.throws(() => executor.create({ command: 'delete nothing', provider: 'claude', backupProvider: 'claude', threadId: thread.id, workspace: root }), /different agent/);
+});
+
+test('output files stay in the workspace and cannot overwrite existing files', () => {
+  assert.equal(resolveOutputPath(root, 'outputs/case-study.md'), path.join('outputs', 'case-study.md'));
+  assert.throws(() => resolveOutputPath(root, '../outside.md'), /inside the workspace/);
+  assert.throws(() => resolveOutputPath(root, path.resolve(root, 'absolute.md')), /relative to the workspace/);
+  fs.writeFileSync(path.join(root, 'existing.md'), 'keep me');
+  assert.throws(() => resolveOutputPath(root, 'existing.md'), /already exists/);
+});
+
+test('the executor stores an output destination and the server can save its final text', () => {
+  const thread = createThread();
+  const runStore = new RunStore({ runsPath: path.join(root, 'output-runs.json'), eventsPath: path.join(root, 'output-events.jsonl'), performancePath: path.join(root, 'output-performance.json') });
+  const executor = new DirectExecutor({ index: { search: () => [], read: () => null }, runStore, providers: { claude: { id: 'claude', name: 'Claude Code', ready: true } } });
+  const run = executor.create({ command: 'Write a case study', provider: 'claude', workspace: root, outputPath: 'outputs/case-study.md' });
+  assert.equal(run.outputPath, path.join('outputs', 'case-study.md'));
+  const saved = saveOutputFile(root, run.outputPath, '# Case study', run.id);
+  assert.equal(saved, run.outputPath);
+  assert.equal(fs.readFileSync(path.join(root, saved), 'utf8'), '# Case study');
+  assert.equal(isInteractiveApprovalBlock('claude', { output: 'The write requires your approval. Please allow the file write.' }), true);
+  assert.equal(isInteractiveApprovalBlock('codex', { output: 'The write requires your approval.' }), false);
 });
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));

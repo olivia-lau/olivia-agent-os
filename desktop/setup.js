@@ -1,4 +1,7 @@
 const $ = id => document.getElementById(id);
+document.title = "Set up Olivia's Agent Switch";
+document.querySelector('h1').textContent = "Welcome to Olivia's Agent Switch";
+if ($('#name').value === 'Agent OS') $('#name').value = "Olivia's Agent Switch";
 $('backend').addEventListener('change', () => {
   $('localFields').hidden = $('backend').value !== 'local';
   $('githubFields').hidden = $('backend').value !== 'github';

@@ -55,7 +55,7 @@ export function getCodexModels({ command = resolveCodexCommand(), spawnImpl = sp
           else finish();
         }
       });
-      send({ method: 'initialize', id: 1, params: { clientInfo: { name: 'agent_os', title: 'Agent OS', version: '0.2.17' } } });
+      send({ method: 'initialize', id: 1, params: { clientInfo: { name: 'olivias_agent_switch', title: "Olivia's Agent Switch", version: '0.2.17' } } });
     } catch (error) { finish(error.message); }
   });
 }

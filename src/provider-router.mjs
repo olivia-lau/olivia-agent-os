@@ -85,6 +85,6 @@ export function routeCommand(command, providers, { requested = 'auto', exclude =
 export function tokenFailureKind(value) {
   const text = String(value || '').toLowerCase();
   if (/(context window|maximum context|too many tokens|prompt is too long|max_tokens)/.test(text)) return 'context_limit';
-  if (/(usage limit|rate limit|quota|credit balance|billing|capacity|overloaded)/.test(text)) return 'provider_limit';
+  if (/(usage limit|rate limit|quota|credit balance|billing|capacity|overloaded|hit your limit|reached your limit|limit reached|out of usage|usage exhausted)/.test(text)) return 'provider_limit';
   return '';
 }

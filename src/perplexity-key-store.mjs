@@ -55,7 +55,7 @@ export async function savePerplexityKey(apiKey, vaultPath = VAULT_PATH, dataPath
     throw error;
   }
   const note = path.join(directory, NOTE_FILE);
-  const markdown = `---\nuid: system-perplexity-api-connection\ntype: connection\nsensitivity: private\n---\n# Perplexity API connection\n\nThe Perplexity API key is saved in [[${KEY_FILE}]] as encrypted text. It is not plaintext in this vault or in Agent OS run records. Olivia OS loads it automatically when the dashboard starts. The decryption key stays outside this vault in the local Agent OS app data, so a vault copy alone cannot reveal the API key. If you move to another computer, reconnect Perplexity there.\n\nUse **Agent connections → Forget saved key** in the dashboard to remove the encrypted copy. Do not paste a plaintext key into this note.\n`;
+  const markdown = `---\nuid: system-perplexity-api-connection\ntype: connection\nsensitivity: private\n---\n# Perplexity API connection\n\nThe Perplexity API key is saved in [[${KEY_FILE}]] as encrypted text. It is not plaintext in this vault or in Olivia's Agent Switch run records. Olivia's Agent Switch loads it automatically when the dashboard starts. The decryption key stays outside this vault in the local app data, so a vault copy alone cannot reveal the API key. If you move to another computer, reconnect Perplexity there.\n\nUse **Agent connections → Forget saved key** in the dashboard to remove the encrypted copy. Do not paste a plaintext key into this note.\n`;
   try { await fs.writeFile(note, markdown, { encoding: 'utf8', flag: 'wx' }); }
   catch (error) { if (error.code !== 'EEXIST') throw error; }
   return destination;

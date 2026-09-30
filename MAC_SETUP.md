@@ -1,8 +1,8 @@
-# Build Agent OS for a Mac
+# Build Olivia's Agent Switch for a Mac
 
 The GitHub release includes Intel and Apple Silicon Mac app ZIPs built on a Mac runner. The source bundle remains available as a fallback. Neither includes Olivia's vault, conversations, run history, or API keys. These app ZIPs are unsigned and not notarized, so macOS may require manual approval to open them.
 
-For the Endura Mac, Codex runs as the **Codex CLI through VS Code**, not the Codex desktop app. Agent OS uses that same local CLI login; installing the Codex desktop app is not required.
+For the Endura Mac, Codex runs as the **Codex CLI through VS Code**, not the Codex desktop app. Olivia's Agent Switch uses that same local CLI login; installing the Codex desktop app is not required.
 
 1. On the Mac, install current Node.js (version 22 or newer) and npm.
 2. Unzip this bundle to a normal folder, open Terminal there, and run `npm ci`.

@@ -14,6 +14,54 @@ import { validateAgentChoices } from './agent-choices.mjs';
 function bounded(value, max) { return String(value || '').replaceAll('\0', '').trim().slice(0, max); }
 function titleFrom(command) { return bounded(command.split(/\r?\n/)[0], 90) || 'Untitled command'; }
 
+export function resolveOutputPath(workspace, value) {
+  const requested = bounded(value, 1000);
+  if (!requested) return '';
+  if (path.isAbsolute(requested) || path.win32.isAbsolute(requested)) throw new Error('Choose an output path relative to the workspace.');
+  const root = path.resolve(workspace);
+  const absolute = path.resolve(root, requested);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('The output file must stay inside the workspace.');
+  }
+  let current = root;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    let info;
+    try { info = fs.lstatSync(current); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    if (info.isSymbolicLink()) throw new Error('The output path cannot contain symbolic links.');
+    if (current === absolute) throw new Error('The output file already exists. Choose a new path to avoid overwriting it.');
+    if (!info.isDirectory()) throw new Error('An output path parent is not a directory.');
+  }
+  return relative;
+}
+
+export function saveOutputFile(workspace, outputPath, content, runId = 'run') {
+  const relative = resolveOutputPath(workspace, outputPath);
+  if (!relative) return '';
+  const root = path.resolve(workspace);
+  const absolute = path.resolve(root, relative);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  resolveOutputPath(root, relative);
+  const safeRunId = String(runId).replace(/[^a-zA-Z0-9_-]/g, '') || 'run';
+  const temporary = `${absolute}.${safeRunId}.tmp`;
+  try {
+    fs.writeFileSync(temporary, String(content ?? ''), { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(temporary, absolute);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  return relative;
+}
+
+export function isInteractiveApprovalBlock(provider, result) {
+  if (provider !== 'claude') return false;
+  const text = `${result?.output || ''}\n${result?.stderr || ''}`;
+  return /(?:write|edit)\s+(?:requires?|needs?)\s+(?:your|user) approval|please allow (?:the )?(?:file )?write/i.test(text);
+}
+
 function runProcess(command, args, { cwd, input, timeout = AGENT_TIMEOUT_MS, onOutput }) {
   return new Promise(resolve => {
     const env = command === process.execPath && process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env;
@@ -89,12 +137,28 @@ export class DirectExecutor {
     this.running = new Set();
   }
 
+  nextProvider(run, currentProvider, limitKind) {
+    if (run.backupProvider === 'none') return null;
+    if (run.backupProvider && run.backupProvider !== 'auto') {
+      const backup = this.providers[run.backupProvider];
+      return backup?.ready && backup.id !== currentProvider ? { provider: backup.id, taskType: run.taskType, reason: `You selected ${backup.name} as backup.` } : null;
+    }
+    const exclude = [...new Set([...(limitKind === 'provider_limit' ? [...run.providerHistory.map(item => item.provider), currentProvider] : []), ...(run.attachments?.length ? ['perplexity'] : [])])];
+    try { return routeCommand(run.command, this.providers, { requested: 'auto', exclude, performance: this.runStore.performanceSummary() }); }
+    catch { return ['context_limit', 'timeout'].includes(limitKind) ? { provider: currentProvider, taskType: run.taskType, reason: 'Start a fresh agent session from the checkpoint.' } : null; }
+  }
+
   create(input) {
     const command = bounded(input.command, 20000);
     if (!command) throw new Error('Tell the system what you want it to do.');
     const workspace = path.resolve(bounded(input.workspace, 1000) || EXECUTION_ROOT);
     if (!fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) throw new Error('The selected workspace folder does not exist.');
+    const outputPath = resolveOutputPath(workspace, input.outputPath);
     const requestedProvider = bounded(input.provider, 30) || 'auto';
+    const backupProvider = bounded(input.backupProvider, 30) || 'auto';
+    if (!['auto', 'none', 'codex', 'claude'].includes(backupProvider)) throw new Error('Choose Automatic, Codex, Claude Code, or no backup.');
+    if (backupProvider === requestedProvider) throw new Error('Choose a different agent for backup.');
+    if (['codex', 'claude'].includes(backupProvider) && !this.providers[backupProvider]?.ready) throw new Error('The selected backup agent is not ready on this computer.');
     const agentChoices = validateAgentChoices(input.agentChoices || { codex: { model: input.codexModel || '' } });
     const simulateHandoff = input.simulateHandoff === true;
     if (simulateHandoff && (process.env.OLIVIA_ENABLE_HANDOFF_SIMULATION !== '1' || requestedProvider !== 'codex')) {
@@ -104,9 +168,6 @@ export class DirectExecutor {
     const route = routeCommand(command, this.providers, { requested: requestedProvider, exclude: requestedAttachmentIds.length ? ['perplexity'] : [], performance: this.runStore.performanceSummary() });
     const thread = input.threadId ? getThread(String(input.threadId)) : createThread(input.projectId ? String(input.projectId) : '');
     if (input.projectId && thread.projectId !== String(input.projectId)) throw new Error('This conversation belongs to a different project.');
-    if (this.runStore.list().some(run => run.threadId === thread.id && ['queued', 'running', 'handing_off', 'retrying', 'awaiting_execution_approval'].includes(run.status))) {
-      throw new Error('Wait for the current conversation task to finish before continuing it. You can start another conversation meanwhile.');
-    }
     const referenceThreadId = bounded(input.referenceThreadId, 80);
     if (referenceThreadId && referenceThreadId !== thread.id) getThread(referenceThreadId);
     const attachmentIds = requestedAttachmentIds;
@@ -124,7 +185,7 @@ export class DirectExecutor {
     const context = useKnowledge ? buildContextPacket(this.index, { goal: command, categories, includePrivate: input.includePrivate !== false }) : null;
     const approvalRequired = requiresExecutionApproval(command);
     const run = this.runStore.create({
-      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, requestedProvider, simulateHandoff, agentChoices,
+      mode: 'direct', title: titleFrom(command), goal: command, command, workspace, outputPath, requestedProvider, backupProvider, simulateHandoff, agentChoices,
       threadId: thread.id, projectId: thread.projectId, referenceThreadId, conversationContext, attachments,
       provider: route.provider, providerReason: route.reason, taskType: route.taskType, providerHistory: [],
       knowledgeMode, memoryMode, outputCategory: bounded(input.outputCategory, 180) || 'Personal Generic',
@@ -161,7 +222,8 @@ export class DirectExecutor {
     const prior = run.providerHistory.at(-1);
     const checkpointPath = path.join(RUN_ARTIFACTS_PATH, id, 'handoff.md');
     if (prior?.error === 'provider_limit' && fs.existsSync(checkpointPath) && run.handoffs.length < MAX_HANDOFFS) {
-      const next = routeCommand(run.command, this.providers, { requested: 'auto', exclude: [...new Set([...run.providerHistory.map(item => item.provider), ...(run.attachments?.length ? ['perplexity'] : [])])], performance: this.runStore.performanceSummary() });
+      const next = this.nextProvider(run, prior.provider, 'provider_limit');
+      if (!next) throw new Error('No ready backup agent is available for this run.');
       const checkpoint = fs.readFileSync(checkpointPath, 'utf8').slice(0, 30000);
       const handoff = { from: prior.provider, to: next.provider, reason: 'provider_limit', simulated: Boolean(prior.simulated || run.simulateHandoff), at: new Date().toISOString(), checkpointPath };
       const updated = this.runStore.update(id, current => ({ ...current, status: 'handing_off', provider: next.provider, taskType: next.taskType, providerReason: `Continued from ${prior.provider}'s checkpoint after ${handoff.simulated ? 'simulated ' : ''}provider limit.`, error: null, completedAt: null, handoffs: [...current.handoffs, handoff], tasks: current.tasks.map(task => ({ ...task, assignee: next.provider, status: 'pending', startedAt: null, completedAt: null, durationMs: null })) }));
@@ -196,9 +258,10 @@ export class DirectExecutor {
       const directVaultAccess = Boolean(context && run.includePrivate && !run.context?.policy?.categories?.length);
       const conversationGuidance = run.conversationContext ? `\n\nPREVIOUS CONVERSATION (context only; the latest user command takes precedence):\n${run.conversationContext}` : '';
       const attachmentGuidance = run.attachments?.length ? `\n\nATTACHED LOCAL FILES (read these paths directly; they are not in Obsidian unless separately saved):\n${run.attachments.map(item => `- ${item.relativePath}: ${item.path}`).join('\n')}` : '';
+      const outputGuidance = run.outputPath ? `\n\nFINAL OUTPUT FILE: Agent OS will save your complete final response to ${run.outputPath}, relative to the task workspace. Return the complete deliverable in your final response; do not call a file-write tool for this output.` : '';
       const attachmentDir = run.attachments?.length ? path.join(DATA_PATH, 'thread-attachments', run.threadId) : '';
       const vaultGuidance = context ? `\n\nOBSIDIAN KNOWLEDGE SOURCE: The selected Obsidian vault is at ${VAULT_PATH}. It may be a local clone of a GitHub repository. For requests about stored work, articles, projects, or personal history, search this vault first. ${directVaultAccess ? 'You may read its Markdown files directly when the snippets below are insufficient.' : 'Use only the included snippets; direct vault access is intentionally restricted by the current knowledge settings.'} Do not claim to have searched Google Drive or another connector unless you actually used it. Do not substitute an external connector for the vault without telling the user. If the requested item is absent, say that clearly. The dashboard handles its own Obsidian record after the task.\n\nMATCHING VAULT NOTES:\n${context.packet || '(No notes matched the current request.)'}` : '';
-      const prompt = (handoffPromptText ? `${handoffPromptText}${conversationGuidance}${attachmentGuidance}${vaultGuidance}` : `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${conversationGuidance}${attachmentGuidance}${vaultGuidance}${simulationInstructions}`) + correctionText;
+      const prompt = (handoffPromptText ? `${handoffPromptText}${conversationGuidance}${attachmentGuidance}${vaultGuidance}${outputGuidance}` : `Perform the task now. You are the primary executor, not a planner. Work directly in the provided workspace, verify the result, and give a concise final report. Do not send messages, make purchases, publish, or perform destructive actions unless the user's command explicitly requests it. For a long task, keep a short checkpoint at ${checkpointPath} after each meaningful milestone so another agent can continue if this session runs out of context or usage.\n\nUSER COMMAND:\n${run.command}${conversationGuidance}${attachmentGuidance}${vaultGuidance}${simulationInstructions}${outputGuidance}`) + correctionText;
       const started = Date.now();
       run = this.runStore.update(id, current => ({ ...current, status: 'running', provider, startedAt: current.startedAt || new Date().toISOString(), tasks: current.tasks.map(task => ({ ...task, assignee: provider, status: 'in_progress', startedAt: new Date().toISOString() })) }));
       this.runStore.event(id, 'execution.started', { provider, workspace: run.workspace, correctionsApplied: corrections.count });
@@ -245,6 +308,18 @@ export class DirectExecutor {
         result = { ...result, ok: false, stderr: 'Simulated provider usage limit after the Codex checkpoint.' };
         this.runStore.event(id, 'execution.simulated_limit', { provider, checkpointPath });
       }
+      if (isInteractiveApprovalBlock(provider, result)) {
+        result = { ...result, ok: false, stderr: 'Claude requested an interactive file-write approval that this run cannot complete. Use the workspace output-file setting so Agent OS can save the final response.' };
+      }
+      let savedOutputPath = '';
+      if (result.ok && run.outputPath) {
+        try {
+          savedOutputPath = saveOutputFile(run.workspace, run.outputPath, result.output, id);
+          this.runStore.event(id, 'execution.output_saved', { provider, path: savedOutputPath });
+        } catch (error) {
+          result = { ...result, ok: false, stderr: `The agent completed, but Agent OS could not save the requested output file: ${error.message}` };
+        }
+      }
       const durationMs = Date.now() - started;
       if (!(run.simulateHandoff && provider === 'codex')) {
         this.runStore.performance({ runId: id, worker: provider, taskType: run.taskType, success: result.ok, durationMs });
@@ -263,19 +338,14 @@ export class DirectExecutor {
           }
         }
         this.runStore.event(id, 'execution.completed', { provider, durationMs, memoryPath });
-        return this.runStore.update(id, current => ({ ...current, status: 'completed', finalOutput: result.output, memoryPath, memoryError, providerHistory: [...current.providerHistory, { provider, success: true, durationMs }], tasks: current.tasks.map(task => ({ ...task, assignee: provider, status: 'completed', completedAt: new Date().toISOString(), durationMs })), completedAt: new Date().toISOString() }));
+        return this.runStore.update(id, current => ({ ...current, status: 'completed', finalOutput: result.output, savedOutputPath, memoryPath, memoryError, providerHistory: [...current.providerHistory, { provider, success: true, durationMs }], tasks: current.tasks.map(task => ({ ...task, assignee: provider, status: 'completed', completedAt: new Date().toISOString(), durationMs })), completedAt: new Date().toISOString() }));
       }
       const failureText = run.simulateHandoff && provider === 'codex' && result.stderr?.startsWith('Simulated provider usage limit')
         ? result.stderr
         : `${result.stderr || ''}\n${result.stdout || ''}`.trim();
       const limitKind = result.timedOut ? 'timeout' : tokenFailureKind(failureText);
       if (limitKind && run.handoffs.length < MAX_HANDOFFS) {
-        const exclude = [...new Set([...(limitKind === 'provider_limit' ? [...run.providerHistory.map(item => item.provider), provider] : []), ...(run.attachments?.length ? ['perplexity'] : [])])];
-        let next;
-        try { next = routeCommand(run.command, this.providers, { requested: 'auto', exclude, performance: this.runStore.performanceSummary() }); }
-        catch {
-          if (limitKind === 'context_limit' || limitKind === 'timeout') next = { provider, reason: 'Start a fresh agent with the saved checkpoint.' };
-        }
+        const next = this.nextProvider(run, provider, limitKind);
         if (next) {
           const checkpoint = fs.existsSync(checkpointPath)
             ? fs.readFileSync(checkpointPath, 'utf8').slice(0, 30000)

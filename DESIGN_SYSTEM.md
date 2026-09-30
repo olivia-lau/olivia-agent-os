@@ -1,4 +1,4 @@
-# Olivia Agent OS interface system
+# Olivia's Agent Switch interface system
 
 The dashboard uses a compact, task-first workspace inspired by coding-agent interfaces.
 

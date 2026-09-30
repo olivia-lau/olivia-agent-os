@@ -76,7 +76,7 @@ body.preview-open .app-shell { grid-template-columns: var(--sidebar-width) minma
 .eyebrow { color: #747474; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; margin-bottom: 3px; }
 .top-actions, .form-actions { display: flex; align-items: center; gap: 8px; }
 .provider-pill { color: var(--green); background: #173024; border: 1px solid #28533a; border-radius: 99px; padding: 4px 8px; font-size: 9px; }
-main { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
+main { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
 .view { display: none; min-height: 100%; }
 .view.active { display: block; }
 .mission-view { position: relative; max-width: 1150px; margin: 0 auto; padding: 34px 28px 80px; }
@@ -221,6 +221,7 @@ body.preview-open .command-form { left: calc(var(--sidebar-width) + (100vw - var
 .live-activity { max-height: 240px; overflow: auto; background: #171717; border: 1px solid var(--line-soft); border-radius: 7px; padding: 8px; margin-bottom: 10px; }
 .live-activity-line { display: grid; grid-template-columns: 60px 1fr; gap: 7px; color: #c8c8c8; font: 9px/1.5 ui-monospace, monospace; border-bottom: 1px solid #262626; padding: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-activity-line time { color: #777; }
+.activity-repeat { color: #999; white-space: nowrap; }
 .memory-link { display: inline-block; color: var(--blue); background: #1c2733; border: 1px solid #34485e; border-radius: 6px; padding: 5px 8px; font-size: 9px; margin-top: 9px; }
 .option-grid .wide { grid-column: 1 / -1; }
 .goal-options { display: grid; gap: 8px; }
@@ -326,4 +327,73 @@ body.preview-open .agent-composers { grid-template-columns: 1fr; }
   .run-side { border-left: 0; border-top: 1px solid var(--line-soft); padding: 12px 0 0; }
   .task-graph { grid-template-columns: 1fr 1fr; }
   .view:not(.mission-view) { padding: 24px 16px; }
+}
+
+/* Conversation-first task layout. The transcript owns the scroll area and the
+   single composer remains visible while several runs update independently. */
+.mission-view { height: auto; min-height: 100%; display: block; overflow: visible; padding: 18px 24px 24px; }
+.conversation-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.conversation-heading h2 { font-size: 18px; margin: 0 0 3px; }
+.conversation-heading p { margin: 0; font-size: 11px; }
+.parallel-status { color: var(--warm); font-size: 11px; white-space: nowrap; }
+.conversation-controls { padding: 10px 12px; margin: 0; }
+.conversation-current { min-height: 28px; }
+.conversation-current strong { font-size: 12px; }
+.conversation-subrow { margin-top: 7px; padding-top: 7px; }
+.project-actions { flex-wrap: nowrap; }
+.conversation-current > .project-actions { display: flex; align-items: center; gap: 7px; }
+.project-actions button { white-space: nowrap; }
+#projectPicker { max-width: min(240px, 24vw); min-width: 130px; color: var(--text); background: #292929; border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 11px; }
+.run-list { overflow: visible; margin: 10px 0 16px; padding-right: 5px; gap: 16px; }
+.run-list .empty { padding: 24px; }
+.workspace-drawers { max-height: none; overflow: visible; margin-bottom: 7px; border: 1px solid var(--line); border-radius: 7px; }
+.workspace-drawers > summary { padding: 7px 10px; color: var(--muted); cursor: pointer; font-size: 11px; }
+.workspace-drawers > details { margin: 7px; }
+.workspace-drawers .command-options { margin: 7px; }
+.agent-composer { position: static; background: #252525; border: 1px solid #505050; border-radius: 12px; padding: 10px; box-shadow: 0 8px 26px #0005; }
+#promptInput { display: block; width: 100%; min-height: 58px; max-height: 160px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.5; padding: 4px; }
+.composer-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
+.composer-toolbar label { display: grid; gap: 3px; color: var(--muted); font-size: 10px; }
+.composer-toolbar select, .composer-model-settings select, .composer-model-settings input { max-width: 100%; color: var(--text); background: #191919; border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 11px; }
+.composer-toolbar .composer-tool { width: auto; height: 30px; padding: 0 8px; color: var(--text); background: #303030; border: 1px solid var(--line); border-radius: 6px; font-size: 11px; }
+.composer-toolbar .send-button { width: 32px; height: 32px; flex: 0 0 32px; font-size: 17px; }
+.composer-model-settings { margin-top: 8px; }
+.composer-model-settings > div { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.composer-model-settings label { display: grid; gap: 3px; min-width: 100px; color: var(--muted); font-size: 10px; }
+.composer-model-settings .advanced-model { min-width: 135px; }
+.composer-model-settings .model-status { align-self: end; max-width: 330px; color: var(--muted); font-size: 10px; }
+.composer-context { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.composer-context > summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.composer-context .conversation-options { margin: 8px 0; }
+.composer-context .attachment-drop { margin-top: 8px; }
+.composer-context .attachment-note { margin: 6px 0 0; }
+.context-source-preview { max-height: 130px; overflow: auto; color: var(--muted); font-size: 10px; }
+.context-source-preview p { margin: 4px 0; overflow-wrap: anywhere; }
+.usage-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.usage-strip .usage-meter { min-width: 0; padding: 5px 0 0; }
+.usage-strip .usage-meter > div:first-child { font-size: 10px; }
+.usage-strip .usage-meter strong { font-size: 10px; }
+.usage-strip .usage-meter small { font-size: 9px; min-height: 0; }
+.usage-strip .usage-link { font-size: 10px; }
+.agent-submit-message:empty { display: none; }
+.output-preview { font: 12px/1.55 Inter, ui-sans-serif, system-ui, sans-serif; }
+.output-preview p { margin: 0 0 5px; }
+.output-preview h3, .output-preview h4, .output-preview h5, .output-preview h6 { margin: 10px 0 5px; color: var(--text); font-size: 13px; }
+.output-preview pre { overflow: auto; padding: 10px; border-radius: 6px; background: #111; font: 11px/1.5 ui-monospace, monospace; }
+.output-preview code { color: #d4e3ff; font: 11px ui-monospace, monospace; }
+.output-preview .result-spacer { height: 7px; }
+.output-preview .result-bullet { padding-left: 12px; }
+.output-preview a, .inline-file-link { color: var(--blue); }
+.inline-file-link { display: inline; padding: 0; border: 0; background: transparent; text-decoration: underline; font: inherit; }
+[hidden] { display: none !important; }
+@media (max-width: 1050px) {
+  .mission-view { padding: 14px 14px 9px; }
+  .conversation-current { align-items: start; }
+  #projectPicker { max-width: 170px; }
+}
+@media (max-width: 720px) {
+  .mission-view { padding: 14px 10px 20px; }
+  .conversation-current > .project-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .usage-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .run-grid { grid-template-columns: 1fr; }
 }

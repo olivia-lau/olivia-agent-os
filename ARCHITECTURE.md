@@ -1,4 +1,4 @@
-# Olivia Agent OS — Local MVP Architecture
+# Olivia's Agent Switch — Architecture
 
 ## Outcome
 

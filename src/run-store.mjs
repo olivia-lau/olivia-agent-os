@@ -38,6 +38,17 @@ export class RunStore {
     return run;
   }
 
+  interruptUnfinished() {
+    const interrupted = [];
+    for (const run of this.list()) {
+      if (!['queued', 'running', 'retrying', 'handing_off'].includes(run.status)) continue;
+      this.update(run.id, current => ({ ...current, status: 'failed', error: 'Agent OS restarted before this task finished. Review its files and checkpoint before retrying.', completedAt: new Date().toISOString(), tasks: (current.tasks || []).map(task => ['pending', 'in_progress'].includes(task.status) ? { ...task, status: 'failed', completedAt: new Date().toISOString() } : task) }));
+      this.event(run.id, 'execution.interrupted', { previousStatus: run.status });
+      interrupted.push(run.id);
+    }
+    return interrupted;
+  }
+
   create(input) {
     const now = new Date().toISOString();
     const run = { id: crypto.randomUUID(), createdAt: now, updatedAt: now, ...input };

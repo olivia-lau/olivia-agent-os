@@ -5,7 +5,8 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
-app.setName('Agent OS');
+app.setName("Olivia's Agent Switch");
+app.setPath('userData', path.join(app.getPath('appData'), 'Agent OS'));
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let window;
@@ -15,6 +16,7 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings() {
   try {
     const value = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+    if (value.displayName === 'Agent OS' || value.displayName === 'Olivia OS') value.displayName = "Olivia's Agent Switch";
     return fs.statSync(value.vaultPath).isDirectory() ? value : null;
   } catch { return null; }
 }
@@ -38,7 +40,7 @@ async function cleanSettings(input) {
     vaultPath = path.resolve(String(input.vaultPath));
     if (!fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) throw new Error('Choose an existing Obsidian vault folder.');
   }
-  const displayName = String(input?.displayName || 'Agent OS').trim().slice(0, 60) || 'Agent OS';
+  const displayName = String(input?.displayName || "Olivia's Agent Switch").trim().slice(0, 60) || "Olivia's Agent Switch";
   return { vaultPath, displayName, backendType, repoId, repoRoot };
 }
 
@@ -75,7 +77,7 @@ function addMacCliPaths() {
 function makeWindow() {
   window = new BrowserWindow({
     width: 1440, height: 920, minWidth: 920, minHeight: 650,
-    backgroundColor: '#181818', title: 'Agent OS',
+    backgroundColor: '#181818', title: "Olivia's Agent Switch",
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true }
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -149,7 +151,7 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') addMacCliPaths();
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   const menu = Menu.buildFromTemplate([
-    { label: 'Agent OS', submenu: [
+    { label: "Olivia's Agent Switch", submenu: [
       { label: 'Change vault or GitHub repo…', click: () => showSetup() },
       { role: 'quit' }
     ] },
@@ -160,7 +162,7 @@ app.whenReady().then(async () => {
   const settings = readSettings();
   if (settings) {
     try { await startDashboard(settings); }
-    catch (error) { dialog.showErrorBox('Agent OS could not start', error.message); await showSetup(); }
+    catch (error) { dialog.showErrorBox("Olivia's Agent Switch could not start", error.message); await showSetup(); }
   } else await showSetup();
 });
 

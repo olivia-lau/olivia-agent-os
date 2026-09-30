@@ -198,8 +198,8 @@ export class AgentOSOrchestrator {
       };
 
       const orchestrator = new OpenMultiAgent({ maxConcurrency: 2, onProgress });
-      const team = orchestrator.createTeam(`olivia-os-${id}`, {
-        name: 'Olivia Agent OS specialists',
+      const team = orchestrator.createTeam(`olivias-agent-switch-${id}`, {
+        name: "Olivia's Agent Switch specialists",
         sharedMemory: true,
         agents: [
           agent('researcher', 'You are the evidence specialist. Find relevant facts, provenance, uncertainty, and current primary sources when needed.'),

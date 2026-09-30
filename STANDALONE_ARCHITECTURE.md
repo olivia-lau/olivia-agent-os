@@ -1,4 +1,4 @@
-# Agent OS desktop edition — design and handoff
+# Olivia's Agent Switch desktop edition — design and handoff
 
 ## Purpose
 
@@ -22,6 +22,7 @@ The desktop shell starts the existing service inside the app process, then opens
 ## Per-person isolation
 
 - First launch asks for an existing Obsidian vault; the selection is stored in that operating-system user's Agent OS settings.
+- The displayed product name is Olivia's Agent Switch, but the existing `Agent OS` user-data directory is retained so upgrades keep their settings, profiles, and decryption keys.
 - Local runs, checkpoints, workspace files, and the decryption master key live in a profile directory derived from the selected vault path. Changing vaults changes profiles.
 - Perplexity's encrypted key text is written only to the selected vault; its master key stays in the local profile. Neither appears in the shareable source archive or Windows build.
 - Codex and Claude sessions remain in those providers' own OS-user accounts. The app never asks for their passwords.

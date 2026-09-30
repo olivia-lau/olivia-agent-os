@@ -1,0 +1,44 @@
+{
+  "name": "agent-os-workbench",
+  "displayName": "Olivia's Agent Switch Workbench",
+  "description": "Open Olivia's Agent Switch beside your VS Code projects.",
+  "version": "0.1.0",
+  "publisher": "olivia-agent-os",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onCommand:agentOS.openWorkbench"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "agentOS.openWorkbench", "title": "Olivia's Agent Switch: Open Workbench" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "agentOS.openWorkbench", "when": "true" }
+      ]
+    },
+    "configuration": {
+      "title": "Olivia's Agent Switch Workbench",
+      "properties": {
+        "agentOS.projectPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Path to the local Olivia's Agent Switch source folder (the folder containing scripts/start-codex-dashboard.mjs). Defaults to the first open VS Code workspace folder."
+        },
+        "agentOS.dashboardUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4311/",
+          "scope": "machine",
+          "description": "Local Olivia's Agent Switch dashboard URL. Keep this on loopback; it exposes local agent tools and files."
+        },
+        "agentOS.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Start the local dashboard if it is not already running."
+        }
+      }
+    }
+  }
+}

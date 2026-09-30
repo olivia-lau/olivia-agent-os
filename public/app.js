@@ -4,6 +4,21 @@ const state = { overview: null, query: '', category: '', projectId: '', threadId
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
+$('#agentComposer').addEventListener('wheel', event => {
+  if (event.deltaY === 0 || event.target.closest('select, input[type="range"]')) return;
+  const innerScroller = event.target.closest('textarea, .context-source-preview');
+  if (innerScroller) {
+    const maxScroll = innerScroller.scrollHeight - innerScroller.clientHeight;
+    const atBoundary = event.deltaY < 0 ? innerScroller.scrollTop <= 0 : innerScroller.scrollTop >= maxScroll - 1;
+    if (maxScroll > 1 && !atBoundary) return;
+  }
+  const page = $('main');
+  if (page.scrollHeight > page.clientHeight) {
+    event.preventDefault();
+    page.scrollTop += event.deltaY;
+  }
+}, { passive: false });
+
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
   const data = await response.json();
@@ -87,7 +102,7 @@ codexModelInput.addEventListener('change', async () => {
     codexModelInput.value = result.agentSettings.codexModel;
     $('[data-agent-model="codex"]').value = result.agentSettings.codexModel;
     syncCodexModelPicker();
-    toast(codexModelInput.value ? 'Codex model override saved for future Agent OS tasks' : 'Codex will use its default model');
+    toast(codexModelInput.value ? "Codex model override saved for future Olivia's Agent Switch tasks" : 'Codex will use its default model');
   } catch (error) { toast(error.message); }
 });
 
@@ -106,6 +121,21 @@ function renderUsage(usage = {}) {
     meter.title = value?.detail || 'Remaining usage is not available';
   }
 }
+
+function renderComposerProvider() {
+  const provider = $('#providerPicker').value;
+  for (const settings of $$('[data-provider-settings]')) settings.hidden = settings.dataset.providerSettings !== provider;
+  for (const option of $('#backupPicker').options) {
+    if (option.value === 'auto' || option.value === 'none') continue;
+    option.disabled = option.value === provider || !state.overview?.providers?.[option.value]?.ready;
+  }
+  if ($('#backupPicker').selectedOptions[0]?.disabled) $('#backupPicker').value = 'auto';
+  $('#sendPrompt').disabled = !state.overview?.providers?.[provider]?.ready;
+  $('#sendPrompt').title = state.overview?.providers?.[provider]?.ready ? `Run with ${providerName(provider)}` : 'Connect this agent under Agent connections first';
+  $('#promptInput').placeholder = provider === 'perplexity' ? 'Ask Perplexity to research current information…' : 'Ask an agent to do something…';
+}
+
+$('#providerPicker').addEventListener('change', renderComposerProvider);
 
 function renderConnections(connections = {}) {
   for (const [id, provider] of Object.entries(connections)) {
@@ -142,7 +172,7 @@ function renderConnections(connections = {}) {
 
 function renderOverview() {
   const { stats, categories, proposals, activity, runs, system, providers, connections, usage, executionRoot } = state.overview;
-  const displayName = state.overview.displayName || 'Agent OS';
+  const displayName = state.overview.displayName || "Olivia's Agent Switch";
   document.title = displayName;
   $('#brandName').textContent = displayName;
   $('#githubBackend').hidden = state.overview.backend?.type !== 'github';
@@ -162,13 +192,12 @@ function renderOverview() {
   if (!$('#commandCategories').options.length) $('#commandCategories').innerHTML = options;
   if (!$('#commandOutputCategory').options.length) $('#commandOutputCategory').innerHTML = options;
   if (!$('#commandWorkspace').value) $('#commandWorkspace').value = executionRoot || '';
-  for (const provider of Object.values(providers || {})) {
-    const form = document.querySelector(`.agent-form[data-provider="${provider.id}"]`);
-    if (!form) continue;
-    form.classList.toggle('unavailable', !provider.ready);
-    $(`#${provider.id}Availability`).textContent = provider.ready ? 'Ready' : provider.id === 'perplexity' ? 'API key required' : provider.installed ? 'Sign in required' : 'Install CLI in Agent connections';
-    form.querySelector('button[type="submit"]').disabled = !provider.ready;
+  for (const option of $('#providerPicker').options) {
+    const provider = providers?.[option.value];
+    option.disabled = !provider?.ready;
+    option.title = provider?.ready ? 'Signed in or configured' : provider?.installed ? 'Sign in under Agent connections' : 'Install or connect this agent first';
   }
+  renderComposerProvider();
   renderUsage(usage);
   if (document.activeElement !== codexModelInput) codexModelInput.value = state.overview.agentSettings?.codexModel || '';
   const codexPromptModel = $('[data-agent-model="codex"]');
@@ -197,19 +226,29 @@ function providerName(id) {
 
 function handoffMessage(item) {
   const reason = (item.reason || '').replaceAll('_', ' ');
-  return `${providerName(item.from)} → ${providerName(item.to)}${reason ? ` · ${reason}` : ''}${item.simulated ? ' · simulation' : ''}`;
+  const transition = item.from === item.to
+    ? `${providerName(item.from)} · fresh session`
+    : `${providerName(item.from)} → ${providerName(item.to)}`;
+  return `${transition}${reason ? ` · ${reason}` : ''}${item.simulated ? ' · simulation' : ''}`;
 }
 
 function renderHandoffBanner(runs) {
-  const run = runs.find(candidate => candidate.handoffs?.length);
   const banner = $('#handoffBanner');
+  const now = Date.now();
+  const run = runs.find(candidate => {
+    if (!candidate.handoffs?.length || !['handing_off', 'running'].includes(candidate.status)) return false;
+    const at = Date.parse(candidate.handoffs.at(-1)?.at || '');
+    return Number.isFinite(at) && now - at < 60_000;
+  });
   if (!run) { banner.hidden = true; return; }
   const handoff = run.handoffs.at(-1);
   const key = `${run.id}:${run.handoffs.length}`;
   if (state.dismissedHandoff === key) { banner.hidden = true; return; }
-  const moving = ['handing_off', 'queued', 'running', 'retrying'].includes(run.status);
+  const moving = run.status === 'handing_off';
   banner.classList.toggle('in-progress', moving);
-  banner.innerHTML = `<span class="handoff-banner-icon" aria-hidden="true">⇄</span><div><strong>${moving ? 'Switching agents — task is continuing' : 'Agent handoff recorded'}</strong><span>${escapeHtml(handoffMessage(handoff))}</span></div><button type="button" data-view-handoff="${escapeHtml(run.id)}">View task</button><button type="button" data-dismiss-handoff="${escapeHtml(key)}" aria-label="Dismiss handoff banner">×</button>`;
+  const sameAgent = handoff.from === handoff.to;
+  const title = moving ? (sameAgent ? 'Starting a fresh agent session' : 'Switching agents — task is continuing') : (sameAgent ? 'Fresh session started — task is continuing' : 'Agent switched — task is continuing');
+  banner.innerHTML = `<span class="handoff-banner-icon" aria-hidden="true">⇄</span><div><strong>${title}</strong><span>${escapeHtml(handoffMessage(handoff))}</span></div><button type="button" data-view-handoff="${escapeHtml(run.id)}">View task</button><button type="button" data-dismiss-handoff="${escapeHtml(key)}" aria-label="Dismiss handoff banner">×</button>`;
   banner.hidden = false;
 }
 
@@ -223,6 +262,9 @@ $('#handoffBanner').addEventListener('click', event => {
   }
   const view = event.target.closest('[data-view-handoff]');
   if (view) {
+    const run = state.overview?.runs?.find(item => item.id === view.dataset.viewHandoff);
+    const thread = state.overview?.threads?.find(item => item.id === run?.threadId);
+    if (thread) switchConversation(thread.id, thread.projectId);
     document.querySelector('[data-view="mission"]')?.click();
     document.getElementById(`run-${view.dataset.viewHandoff}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -250,17 +292,28 @@ function renderConversation() {
   const project = state.overview?.projects?.find(item => item.id === (current?.projectId || state.projectId));
   $('#currentProject').textContent = project?.title || 'No project selected';
   $('#currentConversation').textContent = current?.title || 'No conversation selected';
+  $('#conversationTitle').textContent = current?.title || 'New conversation';
+  $('#conversationSubtitle').textContent = project ? `In ${project.title} · tasks can run in parallel` : 'Choose a project and start working.';
+  const projectPicker = $('#projectPicker');
+  projectPicker.replaceChildren(new Option('Open project…', ''), ...(state.overview?.projects || []).map(item => new Option(item.title, item.id)));
+  projectPicker.value = project?.id || '';
+  renderParallelStatus();
   const reference = $('#referenceConversation');
   const value = reference.value;
   reference.innerHTML = '<option value="">None</option>' + threads.filter(item => item.id !== state.threadId && !['New conversation', 'New project'].includes(item.title)).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(state.overview?.projects?.find(project => project.id === item.projectId)?.title || 'Project')} / ${escapeHtml(item.title)}</option>`).join('');
   reference.value = [...reference.options].some(item => item.value === value) ? value : '';
   const prior = state.overview?.runs?.filter(run => run.threadId === state.threadId && run.finalOutput).length || 0;
-  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this conversation` : 'No previous turns in this conversation', reference.value ? 'selected reference conversation (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', 'selected Obsidian knowledge'];
+  const parts = [prior ? `${Math.min(prior, 4)} recent completed turns from this conversation` : 'No previous completed turns in this conversation', reference.value ? 'selected reference conversation (up to 2 completed turns)' : '', state.selectedAttachments.length ? `${state.selectedAttachments.length} selected local file(s)` : '', $('#knowledgeMode').value === 'off' ? 'Obsidian knowledge off' : 'matching Obsidian knowledge'];
   $('#contextPreviewText').textContent = parts.filter(Boolean).join(' · ') + '. Older turns are omitted to keep the request focused.';
   $('#attachmentList').innerHTML = (current?.attachments || []).map(item => {
     const selected = state.selectedAttachments.some(value => value.id === item.id);
     return `<span class="attachment-chip"><span title="${escapeHtml(item.relativePath)}">${escapeHtml(item.relativePath)}</span><button type="button" data-toggle-attachment="${escapeHtml(item.id)}">${selected ? 'Use in prompt ✓' : 'Use in next prompt'}</button>${item.savedVaultPath ? '<small>Saved to vault</small>' : `<button type="button" data-save-attachment="${escapeHtml(item.id)}">Save to vault</button><button type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="Delete local ${escapeHtml(item.name)}">Delete</button>`}</span>`;
   }).join('');
+}
+
+function renderParallelStatus() {
+  const active = (state.overview?.runs || []).filter(run => run.threadId === state.threadId && ['queued', 'running', 'retrying', 'handing_off'].includes(run.status)).length;
+  $('#parallelStatus').textContent = active ? `${active} task${active === 1 ? '' : 's'} running · parallel file edits may conflict` : '';
 }
 
 function renderSystem(services) {
@@ -290,6 +343,51 @@ function activityText(event) {
   } catch { return raw.slice(0, 600); }
 }
 
+function renderInlineMarkdown(value, files) {
+  const text = String(value || '');
+  const formatText = part => escapeHtml(part).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const pattern = /\[([^\]]+)\]\((<?[^)]+>?)\)/g;
+  let html = '';
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    html += formatText(text.slice(cursor, match.index));
+    const label = escapeHtml(match[1]);
+    const target = match[2].replace(/^<|>$/g, '');
+    let localTarget = target;
+    try { localTarget = decodeURIComponent(target); } catch {}
+    const file = files.find(item => item.path === localTarget || item.path.replaceAll('\\', '/') === localTarget.replaceAll('\\', '/'));
+    if (file) html += `<button type="button" class="inline-file-link" data-file-path="${escapeHtml(file.path)}">${label} ↗</button>`;
+    else if (/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(localTarget)) html += `<button type="button" class="inline-file-link" data-file-path="${escapeHtml(localTarget)}" title="${escapeHtml(localTarget)}">${label} ↗</button>`;
+    else if (/^https?:\/\//i.test(target)) html += `<a href="${escapeHtml(target)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`;
+    else html += label;
+    cursor = match.index + match[0].length;
+  }
+  return html + formatText(text.slice(cursor));
+}
+
+function renderResultMarkdown(value, files = []) {
+  const lines = String(value || '').split(/\r?\n/);
+  const html = [];
+  let code = [];
+  let inCode = false;
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      if (inCode) { html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`); code = []; }
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { code.push(line); continue; }
+    if (!line.trim()) { html.push('<div class="result-spacer"></div>'); continue; }
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) { const level = Math.min(heading[1].length + 2, 6); html.push(`<h${level}>${renderInlineMarkdown(heading[2], files)}</h${level}>`); continue; }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) { html.push(`<p class="result-bullet">• ${renderInlineMarkdown(bullet[1], files)}</p>`); continue; }
+    html.push(`<p>${renderInlineMarkdown(line, files)}</p>`);
+  }
+  if (code.length) html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+  return html.join('');
+}
+
 function renderRuns(runs) {
   const container = $('#runs');
   const selection = window.getSelection();
@@ -303,11 +401,31 @@ function renderRuns(runs) {
     `).join('') || '<div class="source-row"><span>No matching vault sources were included.</span></div>';
     const checks = (run.verification?.checks || []).map(check => `<div class="check ${check.pass ? 'pass' : 'fail'}">${escapeHtml(check.label)} — ${escapeHtml(check.detail)}</div>`).join('');
     const events = (run.events || []).slice(-6).reverse().map(event => `<div class="event-line"><time>${escapeHtml(new Date(event.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><span>${escapeHtml(event.type.replaceAll('.', ' · ').replaceAll('_', ' '))}</span></div>`).join('') || '<p class="muted">No run events yet.</p>';
-    const liveEvents = (run.events || []).filter(event => event.type === 'execution.progress' && !(event.data?.stream === 'stderr' && /\bwarn\b/i.test(event.data?.excerpt || ''))).slice(run.status === 'running' ? -20 : -6).reverse().map(event => `<div class="live-activity-line"><time>${escapeHtml(new Date(event.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><span>${escapeHtml(activityText(event))}</span></div>`).join('');
+    const recentActivity = (run.events || [])
+      .filter(event => event.type === 'execution.progress' && !(event.data?.stream === 'stderr' && /\bwarn\b/i.test(event.data?.excerpt || '')))
+      .slice(run.status === 'running' ? -20 : -6)
+      .reverse();
+    const condensedActivity = [];
+    for (const event of recentActivity) {
+      const text = activityText(event);
+      const prior = condensedActivity.at(-1);
+      if (prior && prior.text === text) {
+        prior.phases.push(event.data?.phase || '');
+      } else condensedActivity.push({ text, at: event.at, phases: [event.data?.phase || ''] });
+    }
+    const liveEvents = condensedActivity.map(event => {
+      const started = event.phases.filter(phase => phase.endsWith('.started')).length;
+      const completed = event.phases.filter(phase => phase.endsWith('.completed')).length;
+      const invocationCount = Math.min(started, completed);
+      const repeatCount = invocationCount > 1 ? invocationCount : invocationCount === 0 && event.phases.length > 1 ? event.phases.length : 1;
+      const status = completed ? 'completed' : started ? 'started' : '';
+      const label = [status, repeatCount > 1 ? `repeated ×${repeatCount}` : ''].filter(Boolean).join(' · ');
+      return `<div class="live-activity-line"><time>${escapeHtml(new Date(event.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><span>${escapeHtml(event.text)}${label ? ` <small class="activity-repeat">${escapeHtml(label)}</small>` : ''}</span></div>`;
+    }).join('');
     const files = (run.files || []).map(file => `<button class="file-link" data-file-path="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}"><span>${file.kind === 'image' ? '▧' : file.kind === 'pdf' ? 'PDF' : '↗'}</span>${escapeHtml(file.name)}</button>`).join('');
     const handoffs = (run.handoffs || []).map(item => `<div class="handoff">${escapeHtml(handoffMessage(item))}</div>`).join('');
     const latestHandoff = run.handoffs?.at(-1);
-    const handoffCallout = latestHandoff ? `<div class="handoff-callout"><span aria-hidden="true">⇄</span><div><strong>${run.status === 'handing_off' ? 'Agent switch in progress' : 'Agent switched during this task'}</strong><p>${escapeHtml(handoffMessage(latestHandoff))}</p></div></div>` : '';
+    const handoffCallout = latestHandoff ? `<div class="handoff-callout"><span aria-hidden="true">⇄</span><div><strong>${run.status === 'handing_off' ? (latestHandoff.from === latestHandoff.to ? 'Fresh agent session starting' : 'Agent switch in progress') : (latestHandoff.from === latestHandoff.to ? 'Fresh session used for continuation' : 'Agent switch used for continuation')}</strong><p>${escapeHtml(handoffMessage(latestHandoff))}</p></div></div>` : '';
     let actions = '';
     if (run.status === 'awaiting_plan_approval') actions = `<div class="run-actions"><button class="button danger" data-run-action="reject-plan" data-run-id="${run.id}">Reject</button><button class="button" data-run-action="approve-plan" data-run-id="${run.id}" data-hash="${run.planHash}">Approve plan and run agents</button></div>`;
     if (run.status === 'awaiting_output_approval') actions = `<div class="run-actions"><button class="button danger" data-run-action="reject-output" data-run-id="${run.id}">Reject output</button><button class="button" data-run-action="approve-output" data-run-id="${run.id}" data-hash="${run.outputHash}">Approve into Obsidian</button></div>`;
@@ -315,8 +433,9 @@ function renderRuns(runs) {
     if (run.status === 'awaiting_execution_approval') actions = `<div class="run-actions"><button class="button danger" data-run-action="reject-execution" data-run-id="${run.id}">Cancel</button><button class="button" data-run-action="approve-execution" data-run-id="${run.id}">Confirm and execute</button></div>`;
     const outputTitle = run.mode === 'direct' ? 'Result' : 'Proposed output';
     const verification = run.verification ? `<div class="verification"><strong>Verification · ${run.verification?.pass ? 'passed' : 'needs attention'} · reviewer ${escapeHtml(run.reviewerVerdict || 'unknown')}</strong>${checks}</div>` : '';
-    const output = run.finalOutput ? `<div class="output-heading"><h4>${outputTitle}</h4><button type="button" class="connection-link" data-copy-run="${escapeHtml(run.id)}">Copy selection or full result</button></div><div class="output-preview">${escapeHtml(run.finalOutput)}</div>${verification}` : '';
-    const route = run.provider ? `<span class="provider-route">${escapeHtml(run.provider)} · ${escapeHtml(run.taskType || 'general')}</span><p class="muted">${escapeHtml(run.providerReason || '')}</p>${handoffs ? `<div class="handoff-list">${handoffs}</div>` : ''}` : '';
+    const output = run.finalOutput ? `<div class="output-heading"><h4>${outputTitle}</h4><button type="button" class="connection-link" data-copy-run="${escapeHtml(run.id)}">Copy selection or full result</button></div><div class="output-preview">${renderResultMarkdown(run.finalOutput, run.files || [])}</div>${verification}` : '';
+    const backup = run.mode === 'direct' ? `<p class="muted">Backup on usage limit: ${escapeHtml(run.backupProvider === 'none' ? 'off' : run.backupProvider === 'auto' || !run.backupProvider ? 'automatic' : providerName(run.backupProvider))}</p>` : '';
+    const route = run.provider ? `<span class="provider-route">${escapeHtml(run.provider)} · ${escapeHtml(run.taskType || 'general')}</span><p class="muted">${escapeHtml(run.providerReason || '')}</p>${backup}${handoffs ? `<div class="handoff-list">${handoffs}</div>` : ''}` : '';
     return `<article class="run-card" id="run-${escapeHtml(run.id)}">
       <header class="run-header"><div><p class="eyebrow">${escapeHtml(formatDate(run.createdAt))}</p><h3>${escapeHtml(run.title)}</h3><p class="muted">${escapeHtml(run.goal)}</p>${route}</div><span class="run-status ${escapeHtml(run.status)}">${escapeHtml(statusLabel(run.status))}</span></header>
       <div class="run-body">
@@ -409,6 +528,11 @@ function renderActivity(activity) {
 
 async function reloadOverview() {
   state.overview = await api('/api/overview');
+  if (!state.threadId) {
+    const saved = localStorage.getItem('agentOsLastThread');
+    const thread = state.overview.threads.find(item => item.id === saved) || state.overview.threads[0];
+    if (thread) { state.threadId = thread.id; state.projectId = thread.projectId; }
+  }
   renderOverview();
   if (state.overview.backend?.type === 'github') await refreshGithubStatus();
 }
@@ -532,7 +656,7 @@ drop.addEventListener('click', event => {
   if (event.target === drop || event.target.tagName === 'SPAN') drop.focus();
 });
 document.addEventListener('paste', async event => {
-  const prompt = event.target.closest?.('.agent-form textarea');
+  const prompt = event.target.closest?.('#promptInput');
   if (!prompt && !drop.contains(event.target)) return;
   const images = imagesFromClipboard(event.clipboardData);
   if (!images.length) return;
@@ -542,7 +666,7 @@ document.addEventListener('paste', async event => {
     prompt.setRangeText(text, prompt.selectionStart, prompt.selectionEnd, 'end');
     prompt.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  if (prompt?.closest('.agent-form')?.dataset.provider === 'perplexity') {
+  if (prompt && $('#providerPicker').value === 'perplexity') {
     toast('Perplexity cannot read local images here. Paste into Codex or Claude instead.');
     return;
   }
@@ -608,6 +732,33 @@ $('#attachmentList').addEventListener('click', async event => {
   } catch (error) { button.disabled = false; toast(error.message); }
 });
 $('#referenceConversation').addEventListener('change', renderConversation);
+const contextPreviewButton = document.createElement('button');
+contextPreviewButton.type = 'button';
+contextPreviewButton.className = 'connection-link';
+contextPreviewButton.textContent = 'Preview matching vault notes';
+const contextSourceList = document.createElement('div');
+contextSourceList.className = 'context-source-preview';
+$('#contextPreview').append(contextPreviewButton, contextSourceList);
+contextPreviewButton.addEventListener('click', async () => {
+  const command = $('#promptInput').value.trim();
+  if (!command) { contextSourceList.textContent = 'Write a prompt first to see which notes match.'; return; }
+  contextPreviewButton.disabled = true;
+  contextSourceList.textContent = 'Checking matching notes…';
+  try {
+    const { sources, characters } = await api('/api/context-preview', { method: 'POST', body: JSON.stringify({ command, ...commonCommandOptions() }) });
+    contextSourceList.replaceChildren();
+    if (!sources.length) { contextSourceList.textContent = 'No vault notes will be supplied for this prompt.'; return; }
+    const summary = document.createElement('p');
+    summary.textContent = `${sources.length} note${sources.length === 1 ? '' : 's'} · ${characters.toLocaleString()} characters will be supplied:`;
+    contextSourceList.append(summary);
+    for (const source of sources) {
+      const row = document.createElement('p');
+      row.textContent = `${source.title} — ${source.path} (${source.sensitivity})`;
+      contextSourceList.append(row);
+    }
+  } catch (error) { contextSourceList.textContent = error.message; }
+  finally { contextPreviewButton.disabled = false; }
+});
 $('#newTopic').addEventListener('click', () => $('.new-task').click());
 
 $('#renameProject').addEventListener('click', async () => {
@@ -668,38 +819,35 @@ function agentChoices() {
   }]));
 }
 
-$$('.agent-form').forEach(form => {
-  const submitMessage = document.createElement('p');
-  submitMessage.className = 'agent-submit-message';
-  submitMessage.setAttribute('role', 'alert');
-  form.append(submitMessage);
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    const input = form.querySelector('textarea');
-    const command = input.value.trim();
-    if (!command) return toast('Enter a prompt first');
-    const submit = form.querySelector('button[type="submit"]');
-    const message = form.querySelector('.agent-submit-message');
-    message.textContent = '';
-    submit.disabled = true;
-    try {
-      const threadId = await ensureConversation();
-      await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider: form.dataset.provider, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), agentChoices: agentChoices(), ...commonCommandOptions() }) });
-      input.value = '';
-      state.selectedAttachments = [];
-      await reloadOverview();
-      toast(`${form.dataset.provider} started`);
-    } catch (error) {
-      message.textContent = error.message;
-      toast(error.message);
-      input.focus();
-    } finally {
-      submit.disabled = !state.overview?.providers?.[form.dataset.provider]?.ready;
-    }
-  });
-  form.querySelector('textarea').addEventListener('keydown', event => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); form.requestSubmit(); }
-  });
+$('#agentComposer').addEventListener('submit', async event => {
+  event.preventDefault();
+  const input = $('#promptInput');
+  const command = input.value.trim();
+  if (!command) return toast('Enter a prompt first');
+  const provider = $('#providerPicker').value;
+  const submit = $('#sendPrompt');
+  const message = $('#composerMessage');
+  message.textContent = '';
+  submit.disabled = true;
+  try {
+    const threadId = await ensureConversation();
+    await api('/api/commands', { method: 'POST', body: JSON.stringify({ command, provider, backupProvider: $('#backupPicker').value, threadId, referenceThreadId: $('#referenceConversation').value, attachmentIds: state.selectedAttachments.map(item => item.id), agentChoices: agentChoices(), ...commonCommandOptions() }) });
+    input.value = '';
+    state.drafts[threadId] = '';
+    state.selectedAttachments = [];
+    await reloadOverview();
+    toast(`${providerName(provider)} started. You can send another prompt while it runs.`);
+    input.focus();
+  } catch (error) {
+    message.textContent = error.message;
+    toast(error.message);
+    input.focus();
+  } finally {
+    renderComposerProvider();
+  }
+});
+$('#promptInput').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#agentComposer').requestSubmit(); }
 });
 
 $('#connectionsPanel').addEventListener('click', async event => {
@@ -711,7 +859,7 @@ $('#connectionsPanel').addEventListener('click', async event => {
   const logout = event.target.closest('[data-logout]');
   if (logout) {
     const provider = logout.dataset.logout;
-    if (!window.confirm(`Sign out of ${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI on this computer? This also affects that CLI outside Agent OS. Your task history will stay.`)) return;
+    if (!window.confirm(`Sign out of ${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI on this computer? This also affects that CLI outside Olivia's Agent Switch. Your task history will stay.`)) return;
     logout.disabled = true;
     try {
       const result = await api('/api/connections/logout', { method: 'POST', body: JSON.stringify({ provider }) });
@@ -783,7 +931,7 @@ $('#runs').addEventListener('pointerdown', event => {
   const selection = window.getSelection();
   copy.dataset.selectedText = selection && !selection.isCollapsed && preview?.contains(selection.anchorNode) && preview?.contains(selection.focusNode) ? selection.toString() : '';
 });
-$('#runs').addEventListener('click', async event => {
+document.addEventListener('click', async event => {
   const copy = event.target.closest('[data-copy-run]');
   if (copy) {
     const run = state.overview?.runs?.find(item => item.id === copy.dataset.copyRun);
@@ -880,23 +1028,32 @@ $$('.tab').forEach(tab => tab.addEventListener('click', () => {
   $$('.tab').forEach(item => item.classList.toggle('active', item === tab));
   $$('.view').forEach(view => view.classList.remove('active'));
   $(`#${tab.dataset.view}View`).classList.add('active');
-  $('#pageTitle').textContent = { mission: 'Tasks', search: 'Knowledge', review: 'Review', activity: 'Activity' }[tab.dataset.view] || 'Olivia OS';
+  $('#pageTitle').textContent = { mission: 'Tasks', search: 'Knowledge', review: 'Review', activity: 'Activity' }[tab.dataset.view] || "Olivia's Agent Switch";
 }));
 function switchConversation(threadId, projectId) {
-  if (state.threadId) state.drafts[state.threadId] = Object.fromEntries($$('.agent-form').map(form => [form.dataset.provider, form.querySelector('textarea').value]));
+  if (state.threadId) state.drafts[state.threadId] = $('#promptInput').value;
   state.threadId = threadId;
   state.projectId = projectId;
+  localStorage.setItem('agentOsLastThread', threadId);
   state.selectedAttachments = [];
   $('#referenceConversation').value = '';
   closeProjectRename();
   closeConversationRename();
-  for (const form of $$('.agent-form')) form.querySelector('textarea').value = state.drafts[threadId]?.[form.dataset.provider] || '';
+  $('#promptInput').value = state.drafts[threadId] || '';
   renderConversation();
   renderRuns(state.overview?.runs?.filter(run => run.threadId === threadId) || []);
   renderSidebarRuns(state.overview?.runs || []);
   $('.tab[data-view="mission"]').click();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  $('#runs').scrollTop = 0;
 }
+
+$('#projectPicker').addEventListener('change', () => {
+  const projectId = $('#projectPicker').value;
+  if (!projectId) return;
+  const thread = state.overview?.threads?.find(item => item.projectId === projectId);
+  switchConversation(thread?.id || 'new', projectId);
+  $('#promptInput').focus();
+});
 
 $('.new-task').addEventListener('click', async () => {
   try {
@@ -906,7 +1063,7 @@ $('.new-task').addEventListener('click', async () => {
     state.expandedProjects.add(project.id);
     switchConversation(thread.id, project.id);
   } catch (error) { toast(error.message); return; }
-  $('.agent-form[data-provider="codex"] textarea').focus();
+  $('#promptInput').focus();
 });
 $('#newConversation').addEventListener('click', async () => {
   try {
@@ -914,7 +1071,7 @@ $('#newConversation').addEventListener('click', async () => {
     const { thread } = await api('/api/threads', { method: 'POST', body: JSON.stringify({ projectId: state.projectId }) });
     state.overview.threads.unshift(thread);
     switchConversation(thread.id, thread.projectId);
-    $('.agent-form[data-provider="codex"] textarea').focus();
+    $('#promptInput').focus();
   } catch (error) { toast(error.message); }
 });
 $('#sidebarRuns').addEventListener('click', event => {
@@ -991,6 +1148,7 @@ setInterval(async () => {
     state.overview.runs = runs;
     $('#runBadge').textContent = runs.filter(item => !['completed', 'rejected'].includes(item.status)).length;
     renderRuns(state.threadId ? runs.filter(run => run.threadId === state.threadId) : runs);
+    renderParallelStatus();
     renderHandoffBanner(runs);
     renderSidebarRuns(runs);
     if (priorCompleted !== nowCompleted) renderConversation();

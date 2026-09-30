@@ -1,8 +1,8 @@
-# Olivia Agent OS — Local MVP
+# Olivia's Agent Switch
 
 The app now also has a standalone desktop edition. On Windows, use the shareable Windows ZIP in `dist/`; it opens without the Codex desktop app. For a partner on Mac, use the separate source bundle and [Mac setup instructions](MAC_SETUP.md). Each person chooses their own vault and uses their own agent accounts. See [desktop architecture](STANDALONE_ARCHITECTURE.md) for the isolation and current limits.
 
-From version 0.2.4, first-run setup can link a GitHub repository containing an Obsidian vault. The app reads and writes a local clone; pull and publishing Agent OS notes are separate manual actions on the Knowledge page. This `olivia-agent-os` repository is the **app's code and releases**, not the partner's Obsidian backend. He should link his own vault repository. See [Mac setup](MAC_SETUP.md) for private-repository and safe-sync steps.
+From version 0.2.4, first-run setup can link a GitHub repository containing an Obsidian vault. The app reads and writes a local clone; pull and publishing app notes are separate manual actions on the Knowledge page. This `olivias-agent-switch` repository is the **app's code and releases**, not another person's Obsidian backend. Each person should link their own vault repository. See [Mac setup](MAC_SETUP.md) for private-repository and safe-sync steps.
 
 A local-first execution console for choosing an agent and giving it a natural-language task. Its primary job is to perform work in the selected workspace. Obsidian provides optional context and records completed work by default.
 
@@ -25,6 +25,10 @@ File actions now use two clicks instead of a system confirmation popup, so focus
 ### Open the current source in Codex on this computer
 
 If the live dashboard is already running, open `http://127.0.0.1:4311/` in a Codex browser tab; `npm run codex:live` will confirm that it is running rather than trying to start a duplicate. If it is not running, finish any desktop Agent OS tasks, close the standalone window, and run `npm run codex:live` from this project folder. This mode uses the same vault, projects, task history, and agent credentials as the standalone app, but must not run concurrently with it. The source server watches code changes, so future dashboard changes are available after a page refresh or automatic server restart without downloading another ZIP. Keep its terminal running while using the dashboard. The Mac partner continues using their own profile and vault.
+
+### Open Olivia's Agent Switch as a VS Code workbench
+
+The development extension in [`vscode-extension/`](vscode-extension/README.md) opens Olivia's Agent Switch in a VS Code panel beside the project. It reuses the same local server, Codex/Claude CLI sign-ins, handoff logic, and Obsidian backend rather than creating another agent UI. Open this repository in VS Code, press **F5** to launch an Extension Development Host, then run **Olivia's Agent Switch: Open Workbench** from its Command Palette. Each person should select their own vault in their local app profile. The extension source is not yet a packaged VSIX; verify it on both operating systems before sharing a packaged build.
 
 The complete MVP also requires goal intake, multi-agent orchestration, scoped context assembly, model/worker routing, executable verification, durable approvals, run journaling, and a unified run dashboard. See `BUILD_STATUS.md` for the corrected scope.
 

@@ -1,4 +1,4 @@
-# Olivia Agent OS — MVP Build Status
+# Olivia's Agent Switch — Build Status
 
 Last checked: 2026-09-26. The human-readable Obsidian handoff for other agents is `vault/00 System/Olivia Agent OS - Start Here.md`, with the detailed build reference linked there.
 

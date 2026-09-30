@@ -31,7 +31,7 @@ export function readCodexUsage({ timeoutMs = 8000 } = {}) {
         if (message.id === 2) finish(message.result || null);
       }
     });
-    child.stdin.write(`${JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'olivia-agent-os', version: '0.1.0' } } })}\n`);
+    child.stdin.write(`${JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'olivias-agent-switch', version: '0.1.0' } } })}\n`);
   });
 }
 
